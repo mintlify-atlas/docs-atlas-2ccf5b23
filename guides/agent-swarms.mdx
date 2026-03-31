@@ -1,0 +1,201 @@
+---
+title: "Agent swarms"
+description: "Spawn and coordinate multiple sub-agents working in parallel to tackle large-scale engineering tasks faster."
+---
+
+Agent swarms let Claude Code break a large task into parallel workstreams — each handled by an independent sub-agent with its own context window. The primary (coordinator) session orchestrates the agents, synthesizes their results, and directs follow-up work.
+
+<Warning>Agent swarms consume significantly more tokens and API calls than single-agent sessions. Each sub-agent runs its own full conversation. Use swarms when the parallelism benefit clearly outweighs the cost.</Warning>
+
+---
+
+## Core tools
+
+### AgentTool — spawning sub-agents
+
+`AgentTool` (internal name: `Task`) is how Claude spawns a sub-agent. Each call starts a new Claude session with its own isolated context:
+
+```
+Task({
+  description: "Investigate auth bug",
+  subagent_type: "worker",
+  prompt: "Find the null pointer in src/auth/validate.ts. Report file paths, line numbers, and types. Do not modify files."
+})
+```
+
+Key parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `description` | Short label for the task (shown in coordinator UI) |
+| `subagent_type` | Always `"worker"` for standard sub-agents |
+| `prompt` | The complete task instruction (workers cannot see the coordinator's conversation) |
+
+Workers run autonomously — they do not need further messages unless you continue them with `SendMessageTool`.
+
+### SendMessageTool — continuing a running agent
+
+`SendMessageTool` sends a follow-up message to a worker that has already completed a turn. Use it to give a worker a synthesized implementation spec after it finishes research, or to correct a failed attempt without spawning a fresh worker:
+
+```
+SendMessage({
+  to: "agent-a1b",
+  message: "Fix the null pointer in src/auth/validate.ts:42. Add a null check before user.id access — if null, return 401 with 'Session expired'. Commit and report the hash."
+})
+```
+
+The worker ID (`to` field) comes from the `task_id` returned by `AgentTool` when the worker was spawned.
+
+### TaskCreateTool / TaskUpdateTool — task tracking
+
+`TaskCreateTool` and `TaskUpdateTool` let the coordinator create and update structured task records that can be shared across agents. This provides a lightweight coordination layer for tracking progress on multi-file or multi-phase work.
+
+### TeamCreateTool / TeamDeleteTool — managing agent teams
+
+`TeamCreateTool` creates a named team of agents that can share a communication channel. Use teams when you need multiple long-running workers to coordinate with each other, not just with the coordinator:
+
+```
+TeamCreate({ name: "refactor-team", description: "Parallel refactor across 3 modules" })
+```
+
+`TeamDeleteTool` tears down a team once its work is complete.
+
+---
+
+## Coordinator mode
+
+Coordinator mode is a special session configuration that gives Claude a tailored system prompt optimized for multi-agent orchestration. Enable it by setting the `CLAUDE_CODE_COORDINATOR_MODE` environment variable:
+
+```bash
+CLAUDE_CODE_COORDINATOR_MODE=1 claude
+```
+
+In coordinator mode, Claude is instructed to:
+
+- **Parallelize** — launch independent research and implementation workers concurrently
+- **Synthesize** — read worker findings and write specific, actionable follow-up prompts rather than delegating understanding
+- **Verify separately** — use a dedicated verification worker with fresh context to prove changes work
+- **Report to the user** — summarize progress after each batch of worker results
+
+Workers spawned in coordinator mode receive a context message listing the tools available to them, including MCP tools from connected servers and skills via `SkillTool`.
+
+---
+
+## Inter-agent communication
+
+When a worker finishes a turn, the coordinator receives a `<task-notification>` message in the conversation:
+
+```xml
+<task-notification>
+  <task-id>agent-a1b</task-id>
+  <status>completed</status>
+  <summary>Agent "Investigate auth bug" completed</summary>
+  <result>Found null pointer in src/auth/validate.ts:42. The user field on Session is undefined when the session expires...</result>
+  <usage>
+    <total_tokens>4200</total_tokens>
+    <tool_uses>8</tool_uses>
+    <duration_ms>12400</duration_ms>
+  </usage>
+</task-notification>
+```
+
+The `task-id` is the agent ID to use with `SendMessageTool`. The `result` field contains the worker's final response.
+
+---
+
+## Worktree isolation
+
+When running parallel agents that modify files, use worktree mode to give each agent an isolated git working tree so their changes don't conflict:
+
+```bash
+claude --worktree
+```
+
+The `EnterWorktreeTool` / `ExitWorktreeTool` tools manage per-agent worktrees programmatically. In bridge mode, the `worktree` spawn mode creates a fresh `git worktree` for each incoming session automatically.
+
+Configure worktree behavior in `settings.json`:
+
+```json
+{
+  "worktree": {
+    "symlinkDirectories": ["node_modules", ".cache"],
+    "sparsePaths": ["src/", "tests/"]
+  }
+}
+```
+
+- `symlinkDirectories` — symlink these directories from the main repo into each worktree to avoid duplicating large directories
+- `sparsePaths` — use git sparse checkout to only populate these paths in worktrees (significantly faster in large monorepos)
+
+---
+
+## Example: parallel refactor
+
+The following shows how a coordinator session structures a multi-agent refactor:
+
+```
+User: Migrate all our API client calls from axios to fetch.
+
+Coordinator:
+  Let me start with parallel research across the codebase.
+
+  Task({
+    description: "Find all axios usages",
+    subagent_type: "worker",
+    prompt: "Search the codebase for all files that import or use axios. Report file paths, line numbers, and the specific axios API surface used (get, post, interceptors, etc). Do not modify files."
+  })
+
+  Task({
+    description: "Understand fetch compatibility needs",
+    subagent_type: "worker",
+    prompt: "Read our existing error-handling and retry logic in src/api/. Report what axios-specific features we rely on and how they map to fetch. Do not modify files."
+  })
+
+  Investigating from two angles — I'll report back with findings.
+
+[Workers complete and return task-notifications]
+
+Coordinator:
+  Research complete. Found 14 files using axios across src/api/ and src/services/.
+  Key axios features used: interceptors (5 files), cancelToken (2 files), baseURL config (all files).
+
+  SendMessage({
+    to: "agent-a1b",
+    message: "Migrate src/api/client.ts to fetch. The file uses axios interceptors for auth headers — replace with a thin wrapper function that adds the Authorization header. Keep the same exported interface. Commit and report the hash."
+  })
+
+  Task({
+    description: "Migrate src/services/users.ts",
+    subagent_type: "worker",
+    prompt: "Migrate src/services/users.ts from axios to fetch. The file uses only axios.get and axios.post — replace with fetch(). Use the wrapper in src/api/client.ts for auth. Run the user service tests afterward. Commit and report the hash."
+  })
+```
+
+---
+
+## Use cases
+
+- **Parallel test runs** — run different test suites in separate agents simultaneously
+- **Large refactors** — split file-by-file changes across agents (use worktrees to avoid conflicts)
+- **Multi-file changes** — research in one agent, implement in parallel workers, verify in a separate agent
+- **Codebase exploration** — fan out read-only research agents across different subsystems at once
+- **Iterative fixes** — fix one agent's failure with `SendMessageTool` while other agents continue working
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Agent tools" icon="robot" href="/reference/tools/agent-tools">
+    Full reference for AgentTool, SendMessageTool, TeamCreateTool, and related tools.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Understand how Claude Code's tool and query engine work.
+  </Card>
+  <Card title="Headless mode" icon="terminal" href="/advanced/headless-mode">
+    Run Claude Code non-interactively for automated pipelines.
+  </Card>
+  <Card title="Skills" icon="book-open" href="/guides/skills">
+    Skills that workers can invoke during swarm execution.
+  </Card>
+</CardGroup>

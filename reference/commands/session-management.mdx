@@ -1,0 +1,152 @@
+---
+title: "Session management commands"
+description: "Reference for Claude Code commands that manage conversation sessions, context, cost, and tasks."
+---
+
+These commands help you manage the state of your current conversation and navigate between sessions.
+
+## /resume
+
+Restores a previous conversation session, picking up where you left off.
+
+```bash
+> /resume
+# Opens an interactive session picker listing recent conversations
+
+> /resume abc123de-...
+# Resumes a specific session by UUID directly
+
+> /resume "fix auth bug"
+# Resumes the session with a matching custom title (exact match)
+```
+
+When invoked without arguments, `/resume` displays a scrollable list of previous conversations for the current repository. You can toggle between showing only same-repo sessions and all projects with a keystroke.
+
+Sessions are stored as log files on disk. Each session is identified by a UUID. The picker shows the session's first message, timestamp, and — when custom titles are enabled — a human-readable title.
+
+**Resuming from a different directory**
+
+If you select a session that originated in a different directory, Claude Code will not resume it directly. Instead it copies the correct `claude --resume <session-id>` command to your clipboard and displays it so you can run it from the right working directory.
+
+<Note>
+Sessions from git worktrees within the same repository can be resumed directly regardless of the current working directory.
+</Note>
+
+**CLI flag for headless resume**
+
+You can resume a session without entering the REPL interactively:
+
+```bash
+claude --resume <session-id>
+```
+
+This is useful in scripts or automation where you want to continue a specific session programmatically.
+
+---
+
+## /compact
+
+Compresses the current conversation history into a summary, freeing up context window space.
+
+```bash
+> /compact
+# Runs automatic summarization
+
+> /compact focus on the database schema changes only
+# Summarizes with custom instructions
+```
+
+Claude Code replaces the full message history with a condensed summary. After compaction, you can continue the conversation with the same context available but at a much lower token count.
+
+<Note>
+Use `/compact` when you see a warning that you are approaching the context limit, or proactively on long-running sessions to reduce cost.
+</Note>
+
+When you pass custom instructions as an argument, those instructions guide what the summary focuses on. Without instructions, Claude Code uses its default summarization strategy.
+
+After compaction completes, the REPL displays a confirmation message. Press `ctrl+o` to view the full summary.
+
+---
+
+## /share
+
+Shares the current session. Feature availability depends on your account type.
+
+```bash
+> /share
+```
+
+<Note>
+`/share` availability varies by account. The command may be hidden or disabled depending on your subscription and organization settings.
+</Note>
+
+---
+
+## /clear
+
+Clears the current conversation history and frees up context.
+
+```bash
+> /clear
+```
+
+Aliases: `/reset`, `/new`
+
+Unlike `/compact`, which replaces history with a summary, `/clear` removes all conversation history entirely. This is equivalent to starting a fresh session. Your files on disk are not affected.
+
+---
+
+## /exit
+
+Exits the Claude Code REPL.
+
+```bash
+> /exit
+```
+
+Aliases: `/quit`
+
+---
+
+## /context
+
+Visualizes how much of the current context window is in use, rendered as a colored grid.
+
+```bash
+> /context
+```
+
+Each cell in the grid represents a portion of the context window. The color indicates how full that segment is. This gives you a quick sense of how much room is left before you need to use `/compact` or `/clear`.
+
+In non-interactive (headless) mode, `/context` outputs a plain text summary of context usage instead of the grid.
+
+---
+
+## /cost
+
+Shows the total token usage and estimated cost for the current session.
+
+```bash
+> /cost
+# Session cost: $0.42 (1,234 input tokens, 567 output tokens) — 4m 12s
+```
+
+<Note>
+`/cost` is hidden for claude.ai subscribers, since they are billed through their subscription rather than per-token. The command is still visible for API key users.
+</Note>
+
+If you are a claude.ai subscriber currently using overage billing, `/cost` will indicate that rather than showing a dollar amount.
+
+---
+
+## /tasks
+
+Lists and manages background tasks running in the current session.
+
+```bash
+> /tasks
+```
+
+Aliases: `/bashes`
+
+Background tasks are long-running shell commands or sub-agents that Claude Code spawned during the current session. `/tasks` opens a panel where you can view their status and output.

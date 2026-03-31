@@ -1,0 +1,238 @@
+---
+title: "Search tools"
+description: "Tools for finding files by name pattern and searching file contents by regular expression. Powered by glob and ripgrep."
+---
+
+Claude Code provides two dedicated search tools — `GlobTool` for finding files by name, and `GrepTool` for searching file contents by regular expression — plus `BashTool` for any search patterns that need direct ripgrep invocation.
+
+## GlobTool
+
+Finds files whose paths match a glob pattern. Results are sorted by modification time, so the most recently changed files appear first.
+
+### Parameters
+
+<ParamField path="pattern" type="string" required>
+  The glob pattern to match file paths against. Supports standard glob syntax including `*`, `**`, `?`, and brace expansion `{a,b}`.
+</ParamField>
+
+<ParamField path="path" type="string">
+  The directory to search in. If omitted, the current working directory is used. Must be a valid directory path — do not pass `"undefined"` or `"null"`.
+</ParamField>
+
+### Pattern examples
+
+| Pattern | Matches |
+|---|---|
+| `**/*.ts` | All TypeScript files anywhere in the tree |
+| `src/**/*.test.ts` | All test files under `src/` |
+| `*.json` | JSON files in the root directory only |
+| `**/*.{ts,tsx}` | TypeScript and TSX files anywhere |
+| `src/tools/*/index.ts` | `index.ts` in any direct subdirectory of `src/tools/` |
+
+### Behavior
+
+- Results are capped at 100 files. If more than 100 files match, the tool returns a truncated set and indicates that results were truncated.
+- Paths are returned relative to the current working directory to save context tokens.
+- Works efficiently on any codebase size.
+
+### Example
+
+```
+User: List all tool implementation files.
+
+Claude: I'll search for TypeScript files in the tools directory.
+[GlobTool: { "pattern": "src/tools/**/*.ts", "path": "/project" }]
+→ src/tools/FileReadTool/FileReadTool.ts
+  src/tools/FileWriteTool/FileWriteTool.ts
+  src/tools/GlobTool/GlobTool.ts
+  ...
+```
+
+## GrepTool
+
+Searches file contents using regular expressions, powered by [ripgrep](https://github.com/BurntSushi/ripgrep). Supports three output modes and a rich set of filtering options.
+
+### Parameters
+
+<ParamField path="pattern" type="string" required>
+  The regular expression to search for. Supports full Rust regex syntax (the same syntax ripgrep uses).
+</ParamField>
+
+<ParamField path="path" type="string">
+  File or directory to search in. Defaults to the current working directory.
+</ParamField>
+
+<ParamField path="glob" type="string">
+  Glob pattern to filter which files are searched, e.g. `"*.ts"` or `"*.{ts,tsx}"`. Maps to ripgrep's `--glob` flag.
+</ParamField>
+
+<ParamField path="output_mode" type="string">
+  Controls what is returned:
+  - `"files_with_matches"` (default) — returns file paths that contain at least one match, sorted by modification time.
+  - `"content"` — returns the matching lines with file path and line number.
+  - `"count"` — returns each file path with its match count.
+</ParamField>
+
+<ParamField path="-A" type="number">
+  Number of lines to show after each match (ripgrep `-A`). Only applies when `output_mode` is `"content"`.
+</ParamField>
+
+<ParamField path="-B" type="number">
+  Number of lines to show before each match (ripgrep `-B`). Only applies when `output_mode` is `"content"`.
+</ParamField>
+
+<ParamField path="-C" type="number">
+  Number of lines to show before and after each match (ripgrep `-C`). Alias for `context`. Only applies when `output_mode` is `"content"`.
+</ParamField>
+
+<ParamField path="-n" type="boolean">
+  Show line numbers in output. Defaults to `true` when `output_mode` is `"content"`.
+</ParamField>
+
+<ParamField path="-i" type="boolean">
+  Case-insensitive search. Defaults to `false`.
+</ParamField>
+
+<ParamField path="type" type="string">
+  Ripgrep file type filter, e.g. `"ts"`, `"py"`, `"rust"`. More efficient than `glob` for standard file types because ripgrep has built-in type definitions.
+</ParamField>
+
+<ParamField path="head_limit" type="number">
+  Limit output to the first N lines or entries. Equivalent to piping through `head -N`. Defaults to 250. Pass `0` for unlimited results (use sparingly — large result sets consume context).
+</ParamField>
+
+<ParamField path="offset" type="number">
+  Skip the first N entries before applying `head_limit`. Use with `head_limit` to paginate through large result sets.
+</ParamField>
+
+<ParamField path="multiline" type="boolean">
+  Enable multiline mode so `.` matches newlines and patterns can span lines (ripgrep `-U --multiline-dotall`). Defaults to `false`.
+</ParamField>
+
+### Regex syntax examples
+
+<CodeGroup>
+
+```text Function definitions
+function\s+\w+
+```
+
+```text Import statements
+^import .+ from ['"]
+```
+
+```text Error logging
+log.*Error|error.*log
+```
+
+```text TODO comments
+(TODO|FIXME|HACK):?\s
+```
+
+```text Specific class usage
+new\s+FileReadTool\(
+```
+
+</CodeGroup>
+
+### Output mode examples
+
+<Tabs>
+  <Tab title="files_with_matches (default)">
+    ```
+    [GrepTool: {
+      "pattern": "buildTool",
+      "path": "/project/src/tools"
+    }]
+    → Found 15 files
+      src/tools/FileReadTool/FileReadTool.ts
+      src/tools/FileWriteTool/FileWriteTool.ts
+      ...
+    ```
+  </Tab>
+  <Tab title="content">
+    ```
+    [GrepTool: {
+      "pattern": "isReadOnly",
+      "path": "/project/src/tools/GlobTool",
+      "output_mode": "content"
+    }]
+    → src/tools/GlobTool/GlobTool.ts:78:  isReadOnly() {
+      src/tools/GlobTool/GlobTool.ts:79:    return true
+    ```
+  </Tab>
+  <Tab title="count">
+    ```
+    [GrepTool: {
+      "pattern": "logEvent",
+      "path": "/project/src",
+      "output_mode": "count",
+      "type": "ts"
+    }]
+    → src/tools/FileReadTool/FileReadTool.ts:8
+      src/tools/FileWriteTool/FileWriteTool.ts:3
+      src/tools/AgentTool/AgentTool.tsx:12
+    ```
+  </Tab>
+</Tabs>
+
+### Filtering by file type
+
+<Tabs>
+  <Tab title="Using glob">
+    ```json
+    {
+      "pattern": "useState",
+      "glob": "*.{ts,tsx}"
+    }
+    ```
+  </Tab>
+  <Tab title="Using type">
+    ```json
+    {
+      "pattern": "useState",
+      "type": "ts"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Pagination
+
+When a search returns more results than the default `head_limit` of 250, use `offset` to page through:
+
+```json
+// First page
+{ "pattern": "logEvent", "head_limit": 50, "offset": 0 }
+
+// Second page
+{ "pattern": "logEvent", "head_limit": 50, "offset": 50 }
+```
+
+## BashTool for search
+
+For search tasks that go beyond what `GlobTool` and `GrepTool` support, you can invoke ripgrep directly through `BashTool`.
+
+### Counting matches within files
+
+`GrepTool` with `output_mode: "count"` aggregates counts per file. For a total count across all files, use `rg` directly:
+
+```bash
+rg -c "logEvent" src/ | awk -F: '{s+=$2} END {print s}'
+```
+
+### Finding files with `find`
+
+```bash
+find src/tools -name "*.ts" -newer src/Tool.ts
+```
+
+### Listing large directories
+
+```bash
+ls -la src/tools/ | sort -k5 -rn | head -20
+```
+
+<Info>
+Prefer `GlobTool` and `GrepTool` over `BashTool` for file searches. They are read-only tools that don't require shell permission approval, and their output is automatically formatted for Claude's context window.
+</Info>

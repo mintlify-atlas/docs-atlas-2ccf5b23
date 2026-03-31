@@ -1,0 +1,289 @@
+---
+title: "Configuration"
+description: "Customize Claude Code's behavior with global settings, project-level instructions, the /config command, environment variables, and enterprise-managed policies."
+---
+
+Claude Code is configured at multiple levels — global user settings, project-local settings, `CLAUDE.md` instruction files, CLI flags, and MDM-managed enterprise policies. Settings are merged at runtime with a defined precedence order.
+
+## Config file locations
+
+<AccordionGroup>
+  <Accordion title="Global user config (~/.claude/settings.json)">
+    The global settings file applies to every Claude Code session on your machine. Create or edit it at:
+
+    ```
+    ~/.claude/settings.json
+    ```
+
+    Example:
+
+    ```json
+    {
+      "$schema": "https://claude.ai/schema/settings.json",
+      "model": "claude-opus-4-5",
+      "permissions": {
+        "defaultMode": "default"
+      },
+      "env": {
+        "MY_VAR": "value"
+      }
+    }
+    ```
+
+    <Tip>Add `"$schema"` to get autocomplete and validation in editors that support JSON Schema.</Tip>
+  </Accordion>
+
+  <Accordion title="Project-local config (.claude/settings.local.json)">
+    The project-local config file lives inside your project directory and is merged on top of the global config for sessions in that project. It is **not committed to version control** (add `.claude/settings.local.json` to `.gitignore`).
+
+    ```
+    <project-root>/.claude/settings.local.json
+    ```
+  </Accordion>
+
+  <Accordion title="Project shared config (.claude/settings.json)">
+    A project-shared settings file can be committed alongside your code. It applies to every team member who opens Claude Code in that project.
+
+    ```
+    <project-root>/.claude/settings.json
+    ```
+  </Accordion>
+
+  <Accordion title="CLAUDE.md instruction files">
+    `CLAUDE.md` files contain natural-language instructions that are injected into Claude's system prompt. Claude Code reads them from:
+
+    - `~/.claude/CLAUDE.md` — global instructions for all projects
+    - `<project-root>/CLAUDE.md` — project-level instructions (can be committed)
+    - Any subdirectory `CLAUDE.md` — applied when Claude operates in that subdirectory
+
+    Use `CLAUDE.md` for instructions, conventions, and context that would otherwise need to be repeated in every conversation — for example, coding standards, project architecture notes, or preferred test frameworks.
+
+    ```markdown
+    # My Project
+
+    ## Coding conventions
+    - Use TypeScript strict mode
+    - Prefer `const` over `let`
+    - All public functions must have JSDoc comments
+
+    ## Testing
+    - Use Vitest for unit tests
+    - Run `npm test` before committing
+    ```
+  </Accordion>
+
+  <Accordion title="Enterprise managed settings">
+    Enterprise administrators can push settings to all users via MDM (Mobile Device Management) or a managed settings file. These are applied with the highest precedence and cannot be overridden by user or project settings. See [MDM-managed settings](#mdm-managed-settings) below.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Key settings
+
+<AccordionGroup>
+  <Accordion title="Model selection">
+    Override the default model Claude Code uses. Accepts a full model ID or a version alias.
+
+    ```json
+    {
+      "model": "claude-opus-4-5"
+    }
+    ```
+
+    Enterprise administrators can restrict which models are available using `availableModels`:
+
+    ```json
+    {
+      "availableModels": ["claude-opus-4-5", "claude-sonnet-4-5"]
+    }
+    ```
+
+    If `availableModels` is set to an empty array, only the default model is selectable.
+  </Accordion>
+
+  <Accordion title="Permission mode">
+    Controls how Claude Code handles tool permission requests. Set via `permissions.defaultMode`:
+
+    | Mode | Description |
+    |------|-------------|
+    | `default` | Prompts for approval on potentially destructive actions |
+    | `acceptEdits` | Auto-approves file reads and edits in the working directory; prompts for shell commands |
+    | `plan` | Shows a plan before executing any tools |
+    | `bypassPermissions` | Skip all permission prompts (use with caution in isolated environments) |
+    | `dontAsk` | Skip all prompts silently (non-interactive automation) |
+
+    ```json
+    {
+      "permissions": {
+        "defaultMode": "default"
+      }
+    }
+    ```
+
+    You can also define fine-grained `allow`, `deny`, and `ask` rules:
+
+    ```json
+    {
+      "permissions": {
+        "allow": ["Bash(git *)", "Read(**/*.ts)"],
+        "deny": ["Bash(rm -rf *)"]
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Output format and themes">
+    Change the terminal theme with the `/theme` slash command, or set it in config:
+
+    ```json
+    {
+      "theme": "dark"
+    }
+    ```
+
+    Adjust session transcript retention (days). Set `0` to disable persistence:
+
+    ```json
+    {
+      "cleanupPeriodDays": 30
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Environment variables">
+    Inject environment variables into every Claude Code session:
+
+    ```json
+    {
+      "env": {
+        "NODE_ENV": "development",
+        "API_BASE_URL": "https://api.example.com"
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Hooks">
+    Run custom shell commands before or after tool executions. See [Hooks](/advanced/hooks) for full documentation.
+
+    ```json
+    {
+      "hooks": {
+        "PreToolUse": [
+          {
+            "matcher": "Bash",
+            "hooks": [{ "type": "command", "command": "echo 'Running bash'" }]
+          }
+        ]
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Git and commit attribution">
+    Control whether Claude Code adds co-authored-by attribution to commits and PRs:
+
+    ```json
+    {
+      "attribution": {
+        "commit": "Co-authored-by: Claude <noreply@anthropic.com>",
+        "pr": ""
+      }
+    }
+    ```
+
+    Setting `pr` to an empty string removes attribution from PR descriptions. Set `includeGitInstructions: false` to remove built-in git workflow instructions from Claude's system prompt.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## The `/config` slash command
+
+Run `/config` inside a Claude Code session to open the interactive settings UI. From there you can:
+
+- View your current effective settings (merged from all sources)
+- Change individual settings and see them take effect immediately
+- Switch between the **Config** and **Permissions** tabs
+
+The settings UI shows the resolved value for each setting and which source it came from (user, project, managed).
+
+---
+
+## Environment variables
+
+Several environment variables influence Claude Code's runtime behavior without modifying config files:
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Anthropic API key for direct API authentication |
+| `ANTHROPIC_BASE_URL` | Override the Anthropic API base URL |
+| `CLAUDE_CODE_DISABLE_POLICY_SKILLS` | Set to `1` to skip loading managed skills |
+| `CLAUDE_CODE_COORDINATOR_MODE` | Set to `1` to enable multi-agent coordinator mode |
+| `CLAUDE_CODE_SIMPLE` | Set to `1` for a reduced tool set in coordinator workers |
+| `CLAUDE_CODE_ENABLE_XAA` | Set to `1` to enable Cross-App Access for MCP OAuth |
+
+<Note>Environment variables take effect per-process. To make them permanent, add them to your shell profile or to the `env` key in `settings.json`.</Note>
+
+---
+
+## MDM-managed settings
+
+Enterprise administrators can distribute settings to managed machines using:
+
+- **macOS MDM** — Deploy a configuration profile targeting Claude Code's bundle ID
+- **Managed settings file** — Place `managed-settings.json` in the managed settings path
+
+The managed settings path is platform-dependent. Retrieve it programmatically via the `getManagedFilePath()` utility, or contact your IT administrator.
+
+Managed settings support all keys from the standard settings schema, plus enterprise-only policy keys:
+
+| Key | Description |
+|-----|-------------|
+| `allowedMcpServers` | Allowlist of MCP servers users can add |
+| `deniedMcpServers` | Denylist of blocked MCP servers |
+| `allowManagedMcpServersOnly` | Restrict MCP allowlist to managed settings only |
+| `allowManagedHooksOnly` | Only run hooks defined in managed settings |
+| `allowManagedPermissionRulesOnly` | Only respect permission rules from managed settings |
+| `strictPluginOnlyCustomization` | Lock skills, agents, hooks, or MCP to plugin-only |
+| `availableModels` | Allowlist of selectable models |
+
+---
+
+## Config precedence
+
+When the same setting is specified in multiple places, the following precedence order applies (highest to lowest):
+
+```
+MDM managed settings
+  ↓
+Global user config (~/.claude/settings.json)
+  ↓
+Project shared config (<project>/.claude/settings.json)
+  ↓
+Project local config (<project>/.claude/settings.local.json)
+  ↓
+CLI flags (--permission-mode, --model, etc.)
+```
+
+<Warning>MDM-managed settings cannot be overridden by users or projects. They are enforced by the enterprise administrator.</Warning>
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Permission model" icon="shield" href="/concepts/permission-model">
+    Understand how Claude Code gates tool usage and requests consent.
+  </Card>
+  <Card title="Hooks" icon="webhook" href="/advanced/hooks">
+    Run shell commands before and after tool executions.
+  </Card>
+  <Card title="MCP servers" icon="plug" href="/guides/mcp-servers">
+    Connect external tools and data sources via MCP.
+  </Card>
+  <Card title="Commands reference" icon="terminal" href="/reference/commands/configuration">
+    Full reference for the /config command.
+  </Card>
+</CardGroup>

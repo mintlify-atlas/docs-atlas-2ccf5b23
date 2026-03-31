@@ -1,0 +1,147 @@
+---
+title: "Web tools"
+description: "Tools for fetching URL content and searching the web. Covers WebFetchTool and WebSearchTool."
+---
+
+Claude Code provides two web tools: `WebFetchTool` for retrieving content from a specific URL, and `WebSearchTool` for running a web search query. Both tools require permission — by default, Claude will ask you to approve each domain or search the first time it is used.
+
+## WebFetchTool
+
+Fetches content from a URL and returns it to Claude, converting the response to the requested format (markdown by default).
+
+### Parameters
+
+<ParamField path="url" type="string" required>
+  The URL to fetch. Must be a valid URL. HTTP URLs are automatically upgraded to HTTPS.
+</ParamField>
+
+<ParamField path="prompt" type="string" required>
+  A description of what Claude should extract or summarize from the fetched content. The tool applies a lightweight extraction step to focus the result on what you asked for rather than returning the raw page.
+</ParamField>
+
+### How it works
+
+1. Claude sends an HTTPS request to the URL.
+2. The response body is converted to markdown (stripping HTML tags and formatting).
+3. If `prompt` is provided, a lightweight summarization step focuses the content on the relevant parts.
+4. The result is returned to Claude as a tool result, capped at 100,000 characters.
+
+### Redirect handling
+
+If the URL redirects to a different host, `WebFetchTool` returns a redirect notice instead of following it automatically. The notice includes the redirect URL so Claude can make a second call with the correct address.
+
+### Supported content types
+
+| Content type | Handling |
+|---|---|
+| HTML pages | Converted to markdown; scripts and styles removed |
+| Markdown files | Returned as-is for pre-approved hosts |
+| PDFs and binary files | Saved to a temporary file on disk; path included in the result |
+
+<Warning>
+`WebFetchTool` cannot access authenticated or private URLs (Google Docs, Confluence, Jira, private GitHub repos, etc.). For authenticated sources, use a specialized MCP server that provides authenticated access instead.
+</Warning>
+
+### Permission model
+
+The first time Claude tries to fetch from a domain, it asks for your approval. You can pre-approve domains in your local settings:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "WebFetchTool(domain:docs.anthropic.com)",
+      "WebFetchTool(domain:github.com)"
+    ]
+  }
+}
+```
+
+Some domains are pre-approved (Anthropic documentation, common package registries). Claude does not need to ask for these.
+
+### Example
+
+```
+User: What parameters does the Anthropic Messages API accept?
+
+Claude: I'll fetch the API reference.
+[WebFetchTool: {
+  "url": "https://docs.anthropic.com/en/api/messages",
+  "prompt": "List all parameters for the Messages API endpoint with their types and descriptions."
+}]
+```
+
+---
+
+## WebSearchTool
+
+Searches the web using Anthropic's built-in search capability and returns results with titles, URLs, and a synthesized summary.
+
+<Info>
+`WebSearchTool` is available on Anthropic's first-party API (`claude.ai`) and on Vertex AI with Claude 4.0+ models. It is not available on Amazon Bedrock or with older model versions.
+</Info>
+
+### Parameters
+
+<ParamField path="query" type="string" required>
+  The search query. Must be at least 2 characters.
+</ParamField>
+
+<ParamField path="allowed_domains" type="string[]">
+  When provided, only return results from these domains. Cannot be used together with `blocked_domains`.
+</ParamField>
+
+<ParamField path="blocked_domains" type="string[]">
+  When provided, exclude results from these domains. Cannot be used together with `allowed_domains`.
+</ParamField>
+
+### How it works
+
+`WebSearchTool` delegates to Anthropic's server-side web search capability, which runs up to 8 searches internally. The results — titles, URLs, and synthesized commentary — are returned as a structured result. Claude is required to include source links in its response when using web search results.
+
+### Use cases
+
+- Looking up documentation for a library or API.
+- Finding the current version of a package.
+- Researching error messages or known issues.
+- Checking whether a feature is available in a specific version.
+
+### Example
+
+```
+User: What's the latest stable version of Bun?
+
+Claude: Let me search for that.
+[WebSearchTool: { "query": "Bun latest stable release version 2025" }]
+→ Web search results for query: "Bun latest stable release version 2025"
+  Bun v1.2.x is the current stable release...
+  Links: [{ "title": "Bun releases", "url": "https://bun.sh/blog" }, ...]
+```
+
+### Domain filtering example
+
+```json
+// Only search the Node.js documentation
+{
+  "query": "fs.readFile options encoding",
+  "allowed_domains": ["nodejs.org"]
+}
+
+// Exclude a noisy domain
+{
+  "query": "TypeScript strict mode errors",
+  "blocked_domains": ["stackoverflow.com"]
+}
+```
+
+### Permission model
+
+`WebSearchTool` requires explicit permission the first time it is used. You can pre-approve it in your local settings:
+
+```json
+{
+  "permissions": {
+    "allow": ["WebSearchTool"]
+  }
+}
+```

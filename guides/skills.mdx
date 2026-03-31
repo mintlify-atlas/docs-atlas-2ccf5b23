@@ -1,0 +1,231 @@
+---
+title: "Skills"
+description: "Define and run reusable workflow instructions that Claude can invoke as slash commands or discover automatically when working in a codebase."
+---
+
+Skills are Markdown files containing instructions that Claude Code loads as reusable workflows. You invoke them with a `/skill-name` slash command, or Claude can invoke them automatically via the `SkillTool`. Skills ship with Claude Code, can be defined per-project, and can be created globally for personal use.
+
+## How skills are loaded
+
+At startup, Claude Code scans the following directories for skills and merges them into the active command set:
+
+| Source | Directory | Scope |
+|--------|-----------|-------|
+| Managed (enterprise) | `<managed-path>/.claude/skills/` | Highest priority |
+| User (global) | `~/.claude/skills/` | User-wide |
+| Project | `.claude/skills/` (project root and parents up to home) | Per-project |
+| Additional dirs (`--add-dir`) | `<dir>/.claude/skills/` | Explicit paths |
+| Legacy commands | `.claude/commands/` | Deprecated format |
+| Bundled | Compiled into the binary | Always available |
+
+Skills from deeper directories take precedence over those from parent directories. Symlinks are resolved before deduplication, so the same file accessed via different paths is only loaded once.
+
+<Note>Skills are also discovered dynamically during a session as Claude reads or edits files. If a `.claude/skills/` directory exists in a subdirectory, its skills become available once Claude touches a file in that subtree.</Note>
+
+---
+
+## Skill file format
+
+Each skill lives in its own directory containing a `SKILL.md` file:
+
+```
+.claude/skills/
+└── my-workflow/
+    └── SKILL.md
+```
+
+### SKILL.md frontmatter
+
+Skills use YAML frontmatter to define metadata:
+
+```markdown
+---
+description: Run the full test suite and fix any failures
+allowed-tools: Bash, FileEdit, FileRead
+argument-hint: <optional test filter>
+when_to_use: Use when you want to verify correctness after a change
+model: claude-sonnet-4-5
+user-invocable: true
+---
+
+Run `npm test` with the given filter (if provided). If any tests fail,
+read the relevant source files and fix the failures. Then run the tests
+again to confirm they pass.
+
+Arguments: $ARGUMENTS
+```
+
+#### Frontmatter fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `description` | string | Short description shown in `/skills` listing |
+| `allowed-tools` | string | Comma-separated list of tools the skill may use |
+| `argument-hint` | string | Hint shown when invoking the skill (e.g. `<filename>`) |
+| `when_to_use` | string | Natural-language hint for when Claude should invoke this skill |
+| `model` | string | Override the model used for this skill invocation |
+| `user-invocable` | boolean | Whether the skill appears as a `/command` (default: `true`) |
+| `arguments` | string or array | Named argument placeholders (e.g. `[file, branch]`) |
+| `effort` | string or int | Effort level hint: `low`, `medium`, `high`, or an integer |
+| `context` | `fork` | Run skill in a forked context (separate conversation thread) |
+| `agent` | string | Route invocation to a specific named agent |
+| `paths` | string | Gitignore-style path patterns — skill only activates for matching files |
+| `hooks` | object | Hooks configuration scoped to this skill |
+
+#### Template variables
+
+Inside the skill body, you can use:
+
+- `$ARGUMENTS` — the raw argument string passed by the user
+- `${arg-name}` — named argument from the `arguments` frontmatter field
+- `${CLAUDE_SKILL_DIR}` — absolute path to the skill's own directory (useful for referencing bundled scripts)
+- `${CLAUDE_SESSION_ID}` — current session ID
+
+#### Inline shell commands
+
+Prefix a line with `!` to run a shell command when the skill is loaded (not during invocation):
+
+```markdown
+---
+description: Show current branch info
+---
+
+Current git status:
+!`git status --short`
+!`git log --oneline -5`
+```
+
+<Warning>Inline shell commands (`!`) are not executed in skills loaded from MCP servers, as remote skill content is untrusted.</Warning>
+
+---
+
+## Built-in bundled skills
+
+Several skills ship with Claude Code and are always available:
+
+| Skill | Description |
+|-------|-------------|
+| `/commit` | Create a conventional git commit from staged changes |
+| `/review` | Perform a code review on recent changes |
+| `/verify` | Run tests and typechecks to verify correctness |
+| `/simplify` | Simplify complex code while preserving behavior |
+| `/debug` | Diagnose and fix a reported bug |
+| `/remember` | Save information to persistent memory |
+| `/stuck` | Get unstuck — reflect on the current state and suggest next steps |
+| `/loop` | Iteratively run a command until it succeeds |
+| `/skillify` | Convert a CLAUDE.md instruction into a reusable skill |
+| `/batch` | Run multiple tasks in parallel using sub-agents |
+
+Run `/skills` to see the full list of available skills in your current session.
+
+---
+
+## The `/skills` slash command
+
+Run `/skills` to open the interactive skills browser. From there you can:
+
+- List all loaded skills with their descriptions
+- Filter skills by source (user, project, bundled, MCP)
+- Invoke a skill directly
+
+You can also invoke any skill directly as a slash command:
+
+```
+/my-workflow optional-arguments here
+```
+
+---
+
+## How Claude invokes skills via SkillTool
+
+The `SkillTool` allows Claude to invoke skills programmatically, without the user explicitly typing a slash command. When Claude is deciding which tools to use, it can call `SkillTool` with a skill name and arguments. This is how skills declared with `when_to_use` are automatically selected — Claude reads the hint and decides whether the skill applies to the current task.
+
+In coordinator mode, workers can also invoke skills, so you can delegate skill invocations (e.g. `/commit`, `/verify`) to worker agents rather than running them in the coordinator context.
+
+---
+
+## Conditional skills (path-filtered)
+
+A skill with a `paths` frontmatter key only becomes active when Claude operates on files matching those patterns:
+
+```markdown
+---
+description: Apply React component best practices
+paths: src/components/**/*.tsx
+---
+
+When editing React components, ensure they follow our conventions...
+```
+
+The `paths` field uses gitignore-style matching relative to the project root. Conditional skills are stored in memory at load time and activated the first time Claude reads or writes a matching file.
+
+---
+
+## Creating a custom skill
+
+<Steps>
+  <Step title="Create the skill directory">
+    Inside your project, create a directory under `.claude/skills/`:
+
+    ```bash
+    mkdir -p .claude/skills/deploy-staging
+    ```
+  </Step>
+
+  <Step title="Write the SKILL.md file">
+    Create `.claude/skills/deploy-staging/SKILL.md`:
+
+    ```markdown
+    ---
+    description: Deploy the current branch to the staging environment
+    allowed-tools: Bash
+    argument-hint: <optional environment name>
+    when_to_use: Use when the user asks to deploy to staging or test the build
+    ---
+
+    Deploy the current branch to staging.
+
+    1. Run `npm run build` and verify it succeeds.
+    2. Run `npm run deploy:staging` (or `npm run deploy:$ARGUMENTS` if an
+       environment name was provided).
+    3. Report the staging URL from the command output.
+    ```
+  </Step>
+
+  <Step title="Verify the skill loads">
+    Start (or restart) a Claude Code session in the project directory and run:
+
+    ```
+    /skills
+    ```
+
+    Your `deploy-staging` skill should appear in the list.
+  </Step>
+
+  <Step title="Invoke the skill">
+    ```
+    /deploy-staging production
+    ```
+
+    Claude will execute the skill with `production` as `$ARGUMENTS`.
+  </Step>
+</Steps>
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Plugins" icon="puzzle-piece" href="/guides/plugins">
+    Package and distribute skills as plugins.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Configure skill loading behavior and enterprise policies.
+  </Card>
+  <Card title="Agent tools" icon="robot" href="/reference/tools/agent-tools">
+    Learn how SkillTool and AgentTool work together.
+  </Card>
+  <Card title="Hooks" icon="webhook" href="/advanced/hooks">
+    Run shell commands before and after skill invocations.
+  </Card>
+</CardGroup>

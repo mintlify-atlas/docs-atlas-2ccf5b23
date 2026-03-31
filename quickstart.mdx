@@ -1,80 +1,139 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Install Claude Code and run your first session in under five minutes."
 ---
 
-## Get started in three steps
+This guide walks you through installing Claude Code, authenticating, and running your first task.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+- **Node.js 18+** and **npm** — or [Bun](https://bun.sh) if you prefer running from source
+- An **Anthropic account** — sign up at [anthropic.com](https://www.anthropic.com) if you don't have one
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Steps>
 
-### Step 2: Deploy your changes
+<Step title="Install Claude Code">
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+Install the package globally with npm:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+```bash
+npm install -g @anthropic-ai/claude-code
+```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+Verify the installation:
 
-### Step 3: Go live
+```bash
+claude --version
+```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+</Step>
+
+<Step title="Start the REPL">
+
+Navigate to your project directory and launch Claude Code:
+
+```bash
+cd /your/project
+claude
+```
+
+This opens the interactive REPL. Claude Code reads your current directory and uses it as context for all requests.
+
+</Step>
+
+<Step title="Sign in">
+
+On first run, type the `/login` command inside the REPL:
+
+```
+/login
+```
+
+This starts the OAuth flow. Your browser will open to complete authentication with your Anthropic account. Credentials are stored securely — on macOS they are saved to the system Keychain.
+
+<Info>
+If you are already authenticated (for example, via an `ANTHROPIC_API_KEY` environment variable), `/login` lets you switch accounts instead.
+</Info>
+
+</Step>
+
+<Step title="Ask Claude to explain the codebase">
+
+Once authenticated, type a natural language request at the prompt:
+
+```
+Explain the overall structure of this codebase. What are the main modules and how do they interact?
+```
+
+Claude Code will read relevant files, summarize the architecture, and point you to key entry points — without you specifying which files to look at.
+
+</Step>
+
+<Step title="Make your first code change">
+
+Try asking for a concrete edit:
+
+```
+Add a JSDoc comment to the main export in src/index.ts describing what it does.
+```
+
+Claude Code will locate the file, read it, propose the edit, and ask for your confirmation before writing. You can approve, reject, or ask for a revision.
+
+</Step>
+
+</Steps>
+
+## Interactive vs. non-interactive usage
+
+Claude Code has two modes.
+
+**Interactive REPL** — Run `claude` with no arguments to open the persistent session. You can have a back-and-forth conversation, use slash commands, and approve tool calls interactively.
+
+**Non-interactive (headless)** — Pass a prompt directly on the command line. Claude Code runs the task and exits. Useful for scripting and CI pipelines.
+
+```bash
+claude "Write a one-line summary of every exported function in src/ and save it to EXPORTS.md"
+```
+
+Use the `--print` / `-p` flag to suppress the interactive UI and print the final response to stdout:
+
+```bash
+claude -p "What does the function parseConfig do in src/config.ts?"
+```
+
+This makes it easy to pipe Claude Code output into other tools:
+
+```bash
+claude -p "List all TODO comments in this repo" | grep -i "urgent"
+```
+
+## Troubleshooting setup
+
+If something is not working as expected, run `/doctor` inside the REPL:
+
+```
+/doctor
+```
+
+The doctor command runs a suite of environment diagnostics — checking authentication status, Node.js and Bun versions, network connectivity to the Anthropic API, and configuration validity. It will surface specific errors with suggested fixes.
+
+<Tip>
+For persistent issues, see the [troubleshooting guide](/advanced/troubleshooting) or check the [installation page](/installation) for platform-specific notes.
+</Tip>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Installation" icon="download" href="/installation">
+    Platform-specific setup, upgrading, and uninstalling.
+  </Card>
+  <Card title="Headless mode" icon="code" href="/advanced/headless-mode">
+    Run Claude Code in CI pipelines and scripts without a terminal UI.
+  </Card>
+  <Card title="MCP servers" icon="plug" href="/guides/mcp-servers">
+    Connect external tools and data sources to Claude Code.
+  </Card>
+  <Card title="Agent swarms" icon="network-wired" href="/guides/agent-swarms">
+    Parallelize large tasks across multiple coordinated sub-agents.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

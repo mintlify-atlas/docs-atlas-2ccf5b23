@@ -1,0 +1,191 @@
+---
+title: "Installation"
+description: "System requirements, platform-specific setup, authentication, upgrading, and uninstalling Claude Code."
+---
+
+## Requirements
+
+| Requirement | Minimum version |
+|---|---|
+| Node.js | 18.0.0 |
+| npm | Included with Node.js 18+ |
+| Bun (optional) | Any recent stable release |
+
+Claude Code is distributed as an npm package. You do not need Bun to install or run the pre-built binary — Bun is only required if you are building from source.
+
+## Install
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+After installation, verify it is available:
+
+```bash
+claude --version
+```
+
+## Platform notes
+
+<Tabs>
+  <Tab title="macOS">
+    Claude Code stores OAuth credentials in the **macOS Keychain**. No extra configuration is needed — the keychain integration is automatic.
+
+    Two keychain entries are prefetched at startup to reduce authentication latency:
+    - The OAuth token for your Anthropic account
+    - A legacy API key slot (used when `ANTHROPIC_API_KEY` is set)
+
+    If you see a Keychain permission dialog on first run, click **Allow**. This grants Claude Code access to store and retrieve your credentials securely.
+
+    <Note>
+    If you are on an Apple Silicon Mac and see a crash on startup, make sure you are running a native arm64 build of Node.js, not an x86_64 build under Rosetta.
+    </Note>
+  </Tab>
+  <Tab title="Linux">
+    On Linux, credentials are stored in a local configuration file rather than a system keychain. The file is created at:
+
+    ```
+    ~/.config/claude-code/credentials.json
+    ```
+
+    Protect this file with appropriate permissions:
+
+    ```bash
+    chmod 600 ~/.config/claude-code/credentials.json
+    ```
+
+    <Warning>
+    Do not commit this file to version control or share it. It contains your OAuth token.
+    </Warning>
+
+    Make sure `ripgrep` (`rg`) is installed for the best search performance. Claude Code falls back to slower alternatives if `rg` is not available.
+
+    ```bash
+    # Debian/Ubuntu
+    apt install ripgrep
+
+    # Fedora
+    dnf install ripgrep
+
+    # Arch
+    pacman -S ripgrep
+    ```
+  </Tab>
+  <Tab title="Windows">
+    Claude Code runs on Windows via **WSL 2** (Windows Subsystem for Linux). A native Windows binary is not currently available.
+
+    <Steps>
+      <Step title="Enable WSL 2">
+        ```powershell
+        wsl --install
+        ```
+        Restart your machine if prompted.
+      </Step>
+      <Step title="Open a WSL terminal">
+        Launch your WSL distribution (Ubuntu is the default) from the Start menu or by running `wsl` in PowerShell.
+      </Step>
+      <Step title="Install Node.js inside WSL">
+        ```bash
+        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+        sudo apt install -y nodejs
+        ```
+      </Step>
+      <Step title="Install Claude Code">
+        ```bash
+        npm install -g @anthropic-ai/claude-code
+        ```
+      </Step>
+    </Steps>
+
+    <Info>
+    Run Claude Code from within a WSL terminal, not from a Windows Command Prompt or PowerShell window. File paths, shell commands, and git operations all run in the Linux environment.
+    </Info>
+  </Tab>
+</Tabs>
+
+## Authentication setup
+
+Claude Code uses OAuth 2.0 to authenticate with your Anthropic account.
+
+**First-time setup:**
+
+1. Run `claude` to open the REPL.
+2. Type `/login` at the prompt.
+3. Your browser opens the Anthropic authorization page.
+4. Approve access and return to the terminal.
+
+Claude Code stores the resulting token securely (Keychain on macOS, a local file on Linux) and refreshes it automatically. You do not need to repeat this process unless you explicitly log out or revoke access.
+
+**API key alternative:**
+
+If you prefer not to use OAuth, set the `ANTHROPIC_API_KEY` environment variable before launching Claude Code:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+claude
+```
+
+When an API key is present, the `/login` command switches between accounts rather than initiating a new OAuth flow.
+
+**Logging out:**
+
+```
+/logout
+```
+
+This revokes the stored token and clears the local credential cache.
+
+## Upgrading
+
+```bash
+npm update -g @anthropic-ai/claude-code
+```
+
+Claude Code also has a built-in auto-updater that runs in the background. If a new version is available, you will see a notification in the REPL. You can disable auto-updates in your settings if you prefer to control upgrades manually.
+
+## Uninstalling
+
+```bash
+npm uninstall -g @anthropic-ai/claude-code
+```
+
+To also remove stored credentials and configuration:
+
+<Tabs>
+  <Tab title="macOS">
+    ```bash
+    # Remove configuration directory
+    rm -rf ~/Library/Application\ Support/claude-code
+
+    # Remove Keychain entries (optional)
+    security delete-generic-password -s "claude-code" 2>/dev/null || true
+    ```
+  </Tab>
+  <Tab title="Linux">
+    ```bash
+    rm -rf ~/.config/claude-code
+    ```
+  </Tab>
+</Tabs>
+
+## Verifying the installation
+
+```bash
+claude --version
+```
+
+If the command is not found after a global npm install, your npm global `bin` directory may not be on your `PATH`. Find it with:
+
+```bash
+npm bin -g
+```
+
+Then add that directory to your shell's `PATH` in `~/.bashrc`, `~/.zshrc`, or equivalent:
+
+```bash
+export PATH="$(npm bin -g):$PATH"
+```
+
+<Tip>
+Run `/doctor` inside the Claude Code REPL for a comprehensive health check that covers authentication, runtime versions, network access, and configuration.
+</Tip>

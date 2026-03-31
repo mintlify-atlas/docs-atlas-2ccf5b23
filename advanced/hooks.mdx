@@ -1,0 +1,300 @@
+---
+title: "Hooks"
+description: "Run scripts, prompts, or sub-agents automatically before and after tool invocations."
+---
+
+Hooks let you attach custom logic to specific lifecycle events in Claude Code. When a hook event fires, Claude Code runs the configured command, evaluates a prompt, or spawns a sub-agent — before or after the triggering action takes place.
+
+## Hook events
+
+Each hook is registered under one of the following events:
+
+| Event | When it fires |
+|---|---|
+| `PreToolUse` | Before a tool is invoked |
+| `PostToolUse` | After a tool returns successfully |
+| `PostToolUseFailure` | After a tool returns an error |
+| `Notification` | When Claude Code sends a desktop notification |
+| `UserPromptSubmit` | When the user submits a message |
+| `SessionStart` | At the start of a new session |
+| `SessionEnd` | When the session ends |
+| `Stop` | When the agent finishes its response |
+| `StopFailure` | When the agent stops due to an error |
+| `SubagentStart` | When a sub-agent is spawned |
+| `SubagentStop` | When a sub-agent finishes |
+| `PreCompact` | Before context compaction |
+| `PostCompact` | After context compaction |
+| `PermissionRequest` | When a permission check is triggered |
+| `PermissionDenied` | When a permission is denied |
+| `Setup` | On `init` or `maintenance` trigger |
+| `ConfigChange` | When settings change on disk |
+| `InstructionsLoaded` | When a CLAUDE.md file is loaded |
+| `CwdChanged` | When the working directory changes |
+| `FileChanged` | When a watched file changes |
+
+## Configuration
+
+Hooks are defined in your settings JSON file (e.g. `~/.claude/settings.json` for user-level hooks, or `.claude/settings.json` for project-level hooks) under the `hooks` key. The value is a map from event name to an array of **matcher configurations**.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'About to run Bash'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "notify-send 'Claude finished'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Each matcher object has:
+
+- `matcher` _(optional)_ — a string pattern matched against the tool name (e.g. `"Bash"`, `"Write"`)
+- `hooks` — an array of hook definitions to run when the matcher matches
+
+## The `if` condition
+
+Every hook supports an `if` field that uses **permission rule syntax** to filter when the hook runs. The condition is evaluated against the hook input's `tool_name` and `tool_input` fields.
+
+```json
+{
+  "type": "command",
+  "command": "./scripts/lint.sh",
+  "if": "Bash(git *)"
+}
+```
+
+Only calls where the tool matches the pattern will trigger the hook. This avoids spawning hooks for non-matching commands.
+
+Examples:
+
+- `"Bash(git *)"` — any Bash call starting with `git`
+- `"Read(*.ts)"` — any Read call on a `.ts` file
+- `"Write"` — any Write call, regardless of path
+
+## Hook types
+
+<AccordionGroup>
+  <Accordion title="command — shell command">
+    Runs a shell command. The hook input is passed as JSON via stdin.
+
+    ```json
+    {
+      "type": "command",
+      "command": "python3 ~/hooks/verify.py",
+      "if": "Bash(git commit*)",
+      "shell": "bash",
+      "timeout": 30,
+      "statusMessage": "Verifying commit...",
+      "once": false,
+      "async": false,
+      "asyncRewake": false
+    }
+    ```
+
+    | Field | Type | Description |
+    |---|---|---|
+    | `command` | `string` | Shell command to execute |
+    | `if` | `string` | Permission rule filter (optional) |
+    | `shell` | `"bash"` \| `"powershell"` | Shell interpreter. Defaults to `bash` (uses `$SHELL`) |
+    | `timeout` | `number` | Timeout in seconds for this command |
+    | `statusMessage` | `string` | Custom spinner message while the hook runs |
+    | `once` | `boolean` | If `true`, the hook is removed after its first execution |
+    | `async` | `boolean` | If `true`, runs in the background without blocking the agent |
+    | `asyncRewake` | `boolean` | Runs in the background; wakes the model if exit code is `2` (implies `async`) |
+
+    **Exit code behaviour:**
+
+    - `0` — success, continue normally
+    - `2` (with `asyncRewake: true`) — the model is woken and given the hook's stdout as a new message
+    - Any other non-zero — the hook is treated as an error
+  </Accordion>
+
+  <Accordion title="prompt — LLM evaluation">
+    Sends a prompt to an LLM. Use `$ARGUMENTS` in the prompt string to inject the hook input JSON.
+
+    ```json
+    {
+      "type": "prompt",
+      "prompt": "Review the following tool input and check for secrets or credentials. Respond with 'BLOCK' if you find any, otherwise 'OK'. Input: $ARGUMENTS",
+      "if": "Write",
+      "model": "claude-sonnet-4-6",
+      "timeout": 20,
+      "statusMessage": "Checking for secrets...",
+      "once": false
+    }
+    ```
+
+    | Field | Type | Description |
+    |---|---|---|
+    | `prompt` | `string` | Prompt to evaluate. Use `$ARGUMENTS` for hook input JSON |
+    | `if` | `string` | Permission rule filter (optional) |
+    | `model` | `string` | Model to use (e.g. `"claude-sonnet-4-6"`). Defaults to the small fast model |
+    | `timeout` | `number` | Timeout in seconds |
+    | `statusMessage` | `string` | Custom spinner message |
+    | `once` | `boolean` | If `true`, removed after first execution |
+  </Accordion>
+
+  <Accordion title="agent — sub-agent verifier">
+    Spawns a sub-agent to verify or act on the hook event. The agent receives a prompt describing what to check, with `$ARGUMENTS` replaced by the hook input JSON.
+
+    ```json
+    {
+      "type": "agent",
+      "prompt": "Verify that unit tests ran and passed before this commit. $ARGUMENTS",
+      "if": "Bash(git commit*)",
+      "model": "claude-sonnet-4-6",
+      "timeout": 60,
+      "statusMessage": "Running verification agent...",
+      "once": false
+    }
+    ```
+
+    | Field | Type | Description |
+    |---|---|---|
+    | `prompt` | `string` | Verification prompt. Use `$ARGUMENTS` for hook input JSON |
+    | `if` | `string` | Permission rule filter (optional) |
+    | `model` | `string` | Model for the agent (e.g. `"claude-sonnet-4-6"`). Defaults to Haiku |
+    | `timeout` | `number` | Timeout in seconds (default 60) |
+    | `statusMessage` | `string` | Custom spinner message |
+    | `once` | `boolean` | If `true`, removed after first execution |
+  </Accordion>
+
+  <Accordion title="http — HTTP webhook">
+    POSTs the hook input JSON to a URL. Useful for integrating with external systems or webhooks.
+
+    ```json
+    {
+      "type": "http",
+      "url": "https://hooks.example.com/claude-event",
+      "if": "PostToolUse",
+      "timeout": 10,
+      "headers": {
+        "Authorization": "Bearer $MY_TOKEN",
+        "Content-Type": "application/json"
+      },
+      "allowedEnvVars": ["MY_TOKEN"],
+      "statusMessage": "Notifying webhook...",
+      "once": false
+    }
+    ```
+
+    | Field | Type | Description |
+    |---|---|---|
+    | `url` | `string` | URL to POST the hook input JSON to |
+    | `if` | `string` | Permission rule filter (optional) |
+    | `timeout` | `number` | Timeout in seconds |
+    | `headers` | `Record<string, string>` | Additional HTTP headers. Values can reference env vars using `$VAR_NAME` |
+    | `allowedEnvVars` | `string[]` | Env var names allowed to be interpolated in header values |
+    | `statusMessage` | `string` | Custom spinner message |
+    | `once` | `boolean` | If `true`, removed after first execution |
+  </Accordion>
+</AccordionGroup>
+
+## Background execution
+
+By default hooks run synchronously and block the agent until they complete. Use `async` to run a hook in the background:
+
+```json
+{
+  "type": "command",
+  "command": "~/scripts/log-tool-use.sh",
+  "async": true
+}
+```
+
+If you also want the background hook to be able to **wake the model** — for example to report a problem discovered asynchronously — use `asyncRewake`:
+
+```json
+{
+  "type": "command",
+  "command": "~/scripts/monitor.sh",
+  "asyncRewake": true
+}
+```
+
+When the command exits with code `2`, Claude Code treats the stdout as a new user message and resumes the model. Any other exit code is treated as normal background completion.
+
+## Full example
+
+The following settings configuration uses all four hook types across multiple events:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[hook] PreToolUse Bash' >> /tmp/claude-hooks.log",
+            "async": true
+          },
+          {
+            "type": "prompt",
+            "prompt": "Check the following Bash command for dangerous operations like rm -rf or curl | sh. Say BLOCK if it should be blocked, otherwise OK. Command: $ARGUMENTS",
+            "if": "Bash",
+            "statusMessage": "Safety checking command..."
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "Verify the file being written does not contain hardcoded API keys or passwords. $ARGUMENTS",
+            "statusMessage": "Scanning for credentials..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "https://hooks.example.com/post-tool",
+            "headers": { "Authorization": "Bearer $WEBHOOK_TOKEN" },
+            "allowedEnvVars": ["WEBHOOK_TOKEN"],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "osascript -e 'display notification \"Claude finished\" with title \"Claude Code\"'",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+<Note>
+  Hook scripts receive the full hook input as JSON on stdin. For `PreToolUse` and `PostToolUse` events this includes `tool_name`, `tool_input`, `session_id`, `transcript_path`, and `cwd`.
+</Note>

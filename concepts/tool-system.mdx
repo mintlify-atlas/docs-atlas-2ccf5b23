@@ -1,0 +1,232 @@
+---
+title: "Tool system"
+description: "How Claude Code's tools work: self-contained modules with input schemas, permission declarations, and execution logic that Claude invokes during a conversation."
+---
+
+Every action Claude Code can perform — reading a file, running a shell command, searching the web — is implemented as a **tool**. Tools are self-contained modules registered in `src/tools.ts`. Claude decides which tool to call, the permission layer checks whether to allow it, and the result is fed back into the next API turn.
+
+## How the tool loop works
+
+```
+User message
+     │
+     ▼
+QueryEngine sends message to Anthropic API
+     │
+     ▼
+Claude returns a tool_use block (tool name + input)
+     │
+     ▼
+Permission layer checks the call
+     │ allowed
+     ▼
+Tool validates input with Zod schema
+     │
+     ▼
+Tool executes and returns a result
+     │
+     ▼
+Result is appended as tool_result and sent back to Claude
+     │
+     ▼
+Claude continues (may call more tools or return final response)
+```
+
+This loop repeats until Claude returns a plain text response with no tool calls.
+
+## Tool anatomy
+
+Every tool is a TypeScript module that exports an object conforming to the `Tool` interface defined in `src/Tool.ts`. The three required parts are:
+
+### 1. Input schema (Zod)
+
+Tools declare their inputs using Zod v4 schemas. The schema is compiled to JSON Schema and sent to the Anthropic API so Claude knows what arguments are valid.
+
+```typescript
+import { z } from 'zod/v4'
+
+const inputSchema = z.object({
+  path: z.string().describe('Absolute path to the file'),
+  limit: z.number().optional().describe('Maximum lines to return'),
+})
+```
+
+### 2. Permission declaration
+
+Each tool declares whether it is read-only, mutating, or dangerous. This declaration is used by the permission layer to decide the default behavior before prompting the user.
+
+### 3. Execute function
+
+The execute function receives validated input and a `ToolUseContext` (working directory, abort signal, permission mode, etc.) and returns a result that Claude can read.
+
+```typescript
+async execute(input, context) {
+  const content = await fs.readFile(input.path, 'utf8')
+  return { type: 'text', text: content }
+}
+```
+
+## Tool registration
+
+All tools are registered in `src/tools.ts`. Some tools are always included; others are conditionally loaded based on feature flags or environment variables:
+
+```typescript
+// Always registered
+import { FileReadTool } from './tools/FileReadTool/FileReadTool.js'
+import { BashTool } from './tools/BashTool/BashTool.js'
+
+// Only registered when the PROACTIVE flag is enabled at build time
+const SleepTool = feature('PROACTIVE') || feature('KAIROS')
+  ? require('./tools/SleepTool/SleepTool.js').SleepTool
+  : null
+
+// Only for internal Anthropic users
+const REPLTool = process.env.USER_TYPE === 'ant'
+  ? require('./tools/REPLTool/REPLTool.js').REPLTool
+  : null
+```
+
+MCP tools are registered dynamically at runtime when an MCP server connects.
+
+---
+
+## Built-in tools
+
+<AccordionGroup>
+
+  <Accordion title="File tools">
+
+    Tools for reading, writing, and editing files on disk.
+
+    | Tool | Description |
+    |---|---|
+    | `FileReadTool` | Read file contents; supports text, images, PDFs, and Jupyter notebooks |
+    | `FileWriteTool` | Create or overwrite a file |
+    | `FileEditTool` | Partial file modification via exact string replacement |
+    | `NotebookEditTool` | Edit individual cells in a Jupyter notebook |
+
+    File read and write operations are subject to the [permission model](/concepts/permission-model). Write and edit tools require explicit user approval in default mode.
+
+    See [File tools reference](/reference/tools/file-tools) for full input schemas.
+
+  </Accordion>
+
+  <Accordion title="Search tools">
+
+    Tools for finding files and content across the codebase.
+
+    | Tool | Description |
+    |---|---|
+    | `GlobTool` | Find files by glob pattern (e.g., `**/*.ts`) |
+    | `GrepTool` | Content search powered by [ripgrep](https://github.com/BurntSushi/ripgrep) |
+    | `ToolSearchTool` | Deferred tool discovery — finds the right tool for a task |
+
+    `GrepTool` shells out to `rg` for performance. It supports full regex syntax and file-type filters.
+
+    See [Search tools reference](/reference/tools/search-tools) for full input schemas.
+
+  </Accordion>
+
+  <Accordion title="Shell tools">
+
+    Tools for executing shell commands and running processes.
+
+    | Tool | Description |
+    |---|---|
+    | `BashTool` | Execute a shell command in the current working directory |
+    | `LSPTool` | Query a Language Server Protocol server (hover, diagnostics, go-to-definition) |
+
+    `BashTool` is the most permissive built-in tool. It runs arbitrary shell commands and is classified as **dangerous** — it will always prompt for approval in default mode unless you have added an allow rule.
+
+    <Warning>
+    Granting `BashTool` broad allow rules or running with `bypassPermissions` gives Claude unrestricted shell access. Only do this in isolated environments you control.
+    </Warning>
+
+  </Accordion>
+
+  <Accordion title="Agent tools">
+
+    Tools for spawning sub-agents and coordinating multi-agent work.
+
+    | Tool | Description |
+    |---|---|
+    | `AgentTool` | Spawn a sub-agent with its own context window and tool set |
+    | `SkillTool` | Execute a saved skill (reusable workflow) |
+    | `TeamCreateTool` | Create a team of parallel agents |
+    | `TeamDeleteTool` | Tear down a team |
+    | `SendMessageTool` | Send a message between agents in a swarm |
+    | `TaskCreateTool` | Create a tracked task |
+    | `TaskUpdateTool` | Update task status or output |
+    | `TaskGetTool` | Read a task |
+    | `TaskListTool` | List all tasks |
+    | `EnterPlanModeTool` | Switch to plan mode (propose without executing) |
+    | `ExitPlanModeTool` | Exit plan mode and resume execution |
+    | `EnterWorktreeTool` | Isolate work to a git worktree |
+    | `ExitWorktreeTool` | Return from a git worktree |
+    | `SleepTool` | Pause execution (proactive mode) |
+
+    See [Agent tools reference](/reference/tools/agent-tools) for full input schemas and the [Agent swarms guide](/guides/agent-swarms).
+
+  </Accordion>
+
+  <Accordion title="Web tools">
+
+    Tools for fetching content from the web.
+
+    | Tool | Description |
+    |---|---|
+    | `WebFetchTool` | Fetch a URL and return its content as text or markdown |
+    | `WebSearchTool` | Run a web search and return results |
+
+    See [Web tools reference](/reference/tools/web-tools).
+
+  </Accordion>
+
+  <Accordion title="MCP tools">
+
+    Tools exposed by connected Model Context Protocol servers.
+
+    | Tool | Description |
+    |---|---|
+    | `MCPTool` | Invoke a tool provided by an MCP server |
+    | `ListMcpResourcesTool` | List resources available on an MCP server |
+    | `ReadMcpResourceTool` | Read an MCP server resource |
+
+    MCP tools are registered dynamically when servers connect and are namespaced by server name to avoid collisions. See [MCP servers](/guides/mcp-servers).
+
+  </Accordion>
+
+</AccordionGroup>
+
+---
+
+## Tool permission levels
+
+Tools declare one of three permission levels that determine the default approval behavior:
+
+| Level | Examples | Default behavior |
+|---|---|---|
+| **Read-only** | `FileReadTool`, `GlobTool`, `GrepTool` | Auto-approved in most modes |
+| **Mutating** | `FileWriteTool`, `FileEditTool` | Prompts user for approval |
+| **Dangerous** | `BashTool` | Always prompts; classifier may pre-approve safe patterns |
+
+The permission level is a default. You can override it for specific tools or patterns using allow/deny rules in your settings. See [Permission model](/concepts/permission-model).
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Permission model" icon="shield" href="/concepts/permission-model">
+    How every tool call is checked before execution.
+  </Card>
+  <Card title="File tools" icon="file" href="/reference/tools/file-tools">
+    Full reference for file read, write, and edit tools.
+  </Card>
+  <Card title="Search tools" icon="search" href="/reference/tools/search-tools">
+    Full reference for glob and grep tools.
+  </Card>
+  <Card title="MCP servers" icon="plug" href="/guides/mcp-servers">
+    Connect external tools via the Model Context Protocol.
+  </Card>
+</CardGroup>

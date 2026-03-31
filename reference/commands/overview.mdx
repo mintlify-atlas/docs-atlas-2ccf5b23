@@ -1,0 +1,66 @@
+---
+title: "Commands overview"
+description: "A complete reference for all slash commands available in the Claude Code REPL."
+---
+
+Slash commands let you control Claude Code's behavior from within the interactive REPL. Type `/` followed by the command name to invoke them. They are only available when running Claude Code interactively — they cannot be used in headless or non-interactive mode (with the exception of a few commands that explicitly support `--print` mode).
+
+```bash
+> /commit
+> /compact summarize only the last 20 turns
+> /model claude-opus-4-5
+```
+
+## All commands
+
+| Command | Description | Notes |
+|---|---|---|
+| `/commit` | Create a git commit with a generated message | Stages relevant files automatically |
+| `/review` | Review a pull request | Accepts an optional PR number |
+| `/diff` | View uncommitted changes and per-turn diffs | Opens an interactive diff dialog |
+| `/pr_comments` | Fetch and display GitHub pull request comments | Requires `gh` CLI |
+| `/compact` | Compress conversation history into a summary | Accepts optional summarization instructions |
+| `/resume` | Restore a previous conversation session | Accepts a session ID or search term |
+| `/share` | Share the current session | Feature availability varies by account |
+| `/clear` | Clear conversation history and free up context | Aliases: `/reset`, `/new` |
+| `/exit` | Exit the REPL | Aliases: `/quit` |
+| `/context` | Visualize current context window usage as a colored grid | |
+| `/cost` | Show total token cost and duration of the current session | Hidden for claude.ai subscribers |
+| `/tasks` | List and manage background tasks | Aliases: `/bashes` |
+| `/config` | Open the configuration panel | Aliases: `/settings` |
+| `/model` | Set the AI model used for the session | Accepts a model name or opens a picker |
+| `/theme` | Change the terminal color theme | Opens an interactive picker |
+| `/vim` | Toggle between Vim and normal editing modes | Persisted to global config |
+| `/doctor` | Diagnose your Claude Code installation and settings | |
+| `/login` | Sign in to your Anthropic account | |
+| `/logout` | Sign out from your Anthropic account | |
+| `/memory` | Edit Claude memory files | Opens your `$EDITOR` |
+| `/mcp` | Manage MCP server connections | Accepts `enable`, `disable`, `reconnect` |
+| `/skills` | Manage reusable skills | |
+| `/help` | Show help information | |
+| `/version` | Display the current Claude Code version | |
+| `/init` | Initialize a new project | |
+| `/status` | Show current status information | |
+| `/env` | Manage environment variables | |
+| `/files` | Manage files in the current session | |
+| `/feedback` | Send feedback to Anthropic | |
+| `/desktop` | Hand off the session to the desktop app | |
+| `/mobile` | Hand off the session to the mobile app | |
+
+<Note>
+Commands are only available inside the Claude Code REPL. If you launch Claude Code with `--print` for non-interactive (headless) use, most slash commands will not be available. A small number of commands — such as `/compact` and `/cost` — support non-interactive mode.
+</Note>
+
+## Dive deeper
+
+<CardGroup cols={3}>
+  <Card title="Git workflow commands" href="/reference/commands/git-workflows">
+    `/commit`, `/review`, `/diff`, and `/pr_comments` in detail.
+  </Card>
+  <Card title="Session management" href="/reference/commands/session-management">
+    Managing context, cost, resuming sessions, and more.
+  </Card>
+  <Card title="Configuration commands" href="/reference/commands/configuration">
+    Changing models, themes, auth, memory, and MCP servers.
+  </Card>
+</CardGroup>

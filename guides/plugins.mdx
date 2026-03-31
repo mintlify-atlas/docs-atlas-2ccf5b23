@@ -1,0 +1,160 @@
+---
+title: "Plugins"
+description: "Extend Claude Code with plugins that provide additional skills, MCP servers, and hooks — installed from a marketplace or from a local path."
+---
+
+Plugins extend Claude Code's capabilities by packaging skills, MCP server configurations, and hooks into a single installable unit. Plugins can be installed per-user or per-project and are managed via the `/plugin` slash command.
+
+## Built-in plugins vs. third-party plugins
+
+**Built-in plugins** ship with Claude Code. They appear in the `/plugin` UI under a "Built-in" section and can be toggled on or off. Built-in plugins are disabled by default until they become generally available.
+
+**Third-party plugins** are distributed through plugin marketplaces (public or private registries). They are installed by name or URL and appear in the same `/plugin` UI alongside built-in plugins.
+
+---
+
+## Plugin scopes
+
+Plugins are installed at one of two scopes:
+
+| Scope | Description | Config location |
+|-------|-------------|-----------------|
+| `user` | Available in all projects on your machine | `~/.claude/settings.json` |
+| `project` | Available only in the current project directory | `<project>/.claude/settings.json` |
+
+The scope is selected during installation. User-scoped plugins load before project-scoped ones, and project plugins can override user settings.
+
+---
+
+## Plugin lifecycle
+
+When Claude Code starts, plugins go through the following stages:
+
+1. **Discover** — Claude Code reads the enabled plugin list from user and project settings.
+2. **Load** — Each plugin's manifest (`plugin.json` or `package.json`) is read to determine what it provides.
+3. **Init** — MCP servers declared by the plugin are registered alongside manually configured servers. Skills declared by the plugin are loaded. Hooks declared by the plugin are registered.
+4. **Deduplication** — If a plugin's MCP server matches an already-configured server (same command array or URL), the plugin server is suppressed. Manually configured servers always win.
+
+---
+
+## What plugins can provide
+
+A plugin can include any combination of:
+
+- **Skills** — slash commands and background-invocable workflows (see [Skills](/guides/skills))
+- **MCP servers** — pre-configured MCP server definitions loaded automatically (see [MCP servers](/guides/mcp-servers))
+- **Hooks** — shell commands or HTTP calls that fire before/after tool executions (see [Hooks](/advanced/hooks))
+
+Plugin-provided MCP servers are namespaced as `plugin:<plugin-name>:<server-name>` to avoid collisions with manually configured servers.
+
+---
+
+## The `/plugin` slash command
+
+Run `/plugin` inside a session to open the plugin management UI. Available subcommands:
+
+| Subcommand | Description |
+|------------|-------------|
+| `/plugin` | Open the plugin management menu |
+| `/plugin install <name>` | Install a plugin from the default marketplace |
+| `/plugin install <name>@<marketplace>` | Install from a specific marketplace |
+| `/plugin install <url-or-path>` | Install from a URL or local path |
+| `/plugin uninstall <name>` | Remove an installed plugin |
+| `/plugin enable <name>` | Enable a disabled plugin |
+| `/plugin disable <name>` | Disable without uninstalling |
+| `/plugin manage` | Open the full plugin list UI |
+| `/plugin marketplace` | Manage marketplace registries |
+| `/plugin validate <path>` | Validate a plugin directory before installing |
+
+---
+
+## Installing a plugin
+
+<Steps>
+  <Step title="Find the plugin">
+    Browse available plugins in the marketplace UI with `/plugin install`, or ask Claude:
+
+    ```
+    /plugin install
+    ```
+
+    This opens the marketplace browser where you can search and filter plugins.
+  </Step>
+
+  <Step title="Install the plugin">
+    Install a specific plugin by name:
+
+    ```
+    /plugin install my-plugin
+    ```
+
+    Or install from a URL:
+
+    ```
+    /plugin install https://plugins.example.com/my-plugin
+    ```
+
+    Or install from a local directory (useful when developing a plugin):
+
+    ```
+    /plugin install ./path/to/my-plugin
+    ```
+  </Step>
+
+  <Step title="Choose the scope">
+    When prompted, choose between **user** (all projects) or **project** (current project only).
+  </Step>
+
+  <Step title="Restart or reload">
+    Most plugins take effect in the next Claude Code session. Some MCP server changes may require restarting the session.
+
+    ```
+    /plugin manage
+    ```
+
+    Use the manage view to confirm the plugin is listed as enabled.
+  </Step>
+</Steps>
+
+---
+
+## Plugin configuration
+
+Many plugins expose configuration options. You can view and change plugin settings from the `/plugin` management UI by selecting a plugin and choosing **Settings**.
+
+Plugin configuration is stored per-scope alongside the plugin's enabled state in `settings.json`.
+
+---
+
+## Enterprise plugin policies
+
+Administrators can restrict plugin customizations using `strictPluginOnlyCustomization` in managed settings. This forces skills, agents, hooks, and/or MCP servers to come exclusively from plugins rather than from user-defined files:
+
+```json
+{
+  "strictPluginOnlyCustomization": ["skills", "hooks", "mcp"]
+}
+```
+
+When a surface is locked, the corresponding user-defined configuration (`.claude/skills/`, hooks in `settings.json`, etc.) is ignored. Only plugin-provided content is active.
+
+<Warning>When `strictPluginOnlyCustomization` is set, users can still install plugins — but they cannot add individual skills or MCP servers outside of a plugin.</Warning>
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Skills" icon="book-open" href="/guides/skills">
+    Learn about skills that plugins can provide.
+  </Card>
+  <Card title="MCP servers" icon="plug" href="/guides/mcp-servers">
+    Understand MCP server configuration that plugins manage.
+  </Card>
+  <Card title="Hooks" icon="webhook" href="/advanced/hooks">
+    Learn about hooks that plugins can register.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Configure enterprise plugin policies.
+  </Card>
+</CardGroup>

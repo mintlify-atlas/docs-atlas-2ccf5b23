@@ -1,0 +1,202 @@
+---
+title: "Permission model"
+description: "How Claude Code checks permissions on every tool invocation: permission modes, allow/deny rules, pattern syntax, and plan mode."
+---
+
+Every tool invocation goes through a permission check before it executes. The check runs in `src/hooks/toolPermission/` and either prompts you interactively, auto-approves, or rejects the call — depending on your configured permission mode and any allow/deny rules you have set up.
+
+<Warning>
+Never run with `bypassPermissions` on a machine or in a network you do not fully control. This mode disables all permission prompts and gives Claude unrestricted access to every tool, including `BashTool`.
+</Warning>
+
+---
+
+## Permission modes
+
+Claude Code supports five permission modes. You set the mode via the `--permission-mode` flag or in your settings file.
+
+<Tabs>
+  <Tab title="default">
+    **Prompts you for each tool call** that is not already covered by an allow or deny rule.
+
+    This is the standard interactive mode. For each new tool invocation, Claude Code pauses and shows you what it wants to do. You can:
+
+    - **Allow once** — approve this single call
+    - **Allow always** — add a permanent allow rule for this tool/pattern
+    - **Deny** — reject this call and tell Claude why
+
+    Read-only tools (file reads, glob, grep) are auto-approved. Mutating and dangerous tools always prompt.
+  </Tab>
+  <Tab title="acceptEdits">
+    **Auto-approves file edits and reads** in the current working directory without prompting.
+
+    Use `acceptEdits` when you want Claude to freely read and edit files in your project without asking, while still prompting for shell commands and other higher-risk operations. This is a good middle ground for active coding sessions.
+
+    ```
+    claude --permission-mode acceptEdits
+    ```
+  </Tab>
+  <Tab title="plan">
+    **Claude proposes steps but does not execute any tool** until you explicitly approve the plan.
+
+    In plan mode, Claude lays out every action it intends to take. You review the full plan, then approve or edit it before a single command runs. This is useful when you want oversight of a complex multi-step operation.
+
+    Claude enters plan mode when it calls `EnterPlanModeTool`. It exits when you approve and it calls `ExitPlanModeTool`.
+
+    ```
+    claude --permission-mode plan
+    ```
+  </Tab>
+  <Tab title="bypassPermissions">
+    **Auto-approves every tool call without exception.**
+
+    All permission prompts are disabled. Claude can run arbitrary shell commands, write any file, and call any tool without asking. Intended for fully automated CI pipelines and sandboxed environments where you have already established trust boundaries at the infrastructure level.
+
+    <Warning>
+    Do not use `bypassPermissions` in interactive development sessions or on machines with access to sensitive data. There is no undo for destructive operations that run without prompts.
+    </Warning>
+  </Tab>
+  <Tab title="dontAsk">
+    **Silently skips all permission prompts**, approving everything without logging or notifying the user.
+
+    Similar to `bypassPermissions` but without the warning indicators in the UI. Intended for non-interactive automation scenarios. Use with the same caution as `bypassPermissions`.
+  </Tab>
+</Tabs>
+
+---
+
+## Allow and deny rules
+
+You can pre-configure which tools are always allowed or always denied using rules in your settings. Rules are checked before the interactive prompt, so Claude can proceed without stopping.
+
+### Rule syntax
+
+Rules use a pattern syntax: `ToolName` or `ToolName(pattern)`.
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git status)",
+      "Read(*.ts)",
+      "Read(*.md)"
+    ],
+    "deny": [
+      "Bash(rm *)",
+      "Bash(curl *)",
+      "FileWrite(*.env)"
+    ]
+  }
+}
+```
+
+### Pattern syntax
+
+| Pattern | Matches |
+|---|---|
+| `Read` | Any call to `FileReadTool`, regardless of arguments |
+| `Bash(git *)` | Any `BashTool` call whose command starts with `git ` |
+| `Read(*.ts)` | Any `FileReadTool` call on a `.ts` file |
+| `Bash(npm run test)` | Exactly the command `npm run test` |
+
+Patterns use shell glob syntax (`*` matches any string, including slashes in file paths).
+
+<Note>
+Deny rules take precedence over allow rules. If a tool call matches both an allow rule and a deny rule, it is denied.
+</Note>
+
+---
+
+## Trust levels
+
+The permission system has three trust levels, evaluated in order:
+
+1. **Denied tools** — match a deny rule → rejected immediately, no prompt
+2. **Approved tools** — match an allow rule → approved immediately, no prompt
+3. **Ask** — no rule matches → interactive prompt (or auto-deny in non-interactive mode)
+
+In addition, `BashTool` calls may go through an **async classifier check** that runs in the background while the prompt is shown. If the classifier auto-approves a low-risk command (e.g., `git status`), the prompt is dismissed automatically.
+
+---
+
+## Plan mode in detail
+
+Plan mode gives you full oversight before any side effect occurs. When Claude enters plan mode:
+
+1. Claude calls `EnterPlanModeTool` (this tool itself is always allowed).
+2. Claude describes every subsequent action it plans to take, in order.
+3. No tools execute while Claude is in plan mode — it can only read and reason.
+4. You review the plan and reply with approval, modifications, or rejection.
+5. Claude calls `ExitPlanModeTool` and begins executing the approved plan.
+
+Plan mode is automatically activated for high-risk operations in some configurations. You can also ask Claude to enter plan mode explicitly:
+
+```
+> Before making any changes, plan out all the steps first
+```
+
+---
+
+## Configuring permissions
+
+Permissions are configured in your settings file. Settings are layered: policy settings override local settings, which override user settings.
+
+```json
+// ~/.claude/settings.json  (user-level)
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(git *)",
+      "Bash(npm run *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)"
+    ]
+  }
+}
+```
+
+```json
+// .claude/settings.json  (project-level, checked into the repo)
+{
+  "permissions": {
+    "allow": [
+      "Bash(make *)",
+      "Bash(go test ./...)"
+    ]
+  }
+}
+```
+
+<Info>
+Project-level settings (`.claude/settings.json`) are merged with user-level settings. Project settings can only add allow rules — they cannot override deny rules set at the user or policy level.
+</Info>
+
+See [Configuration guide](/guides/configuration) for the full settings schema.
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Tool system" icon="wrench" href="/concepts/tool-system">
+    How tools are defined and what permission levels they declare.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Full settings reference, including permission configuration.
+  </Card>
+  <Card title="Headless mode" icon="terminal" href="/advanced/headless-mode">
+    Running Claude Code non-interactively in CI pipelines.
+  </Card>
+  <Card title="Hooks" icon="webhook" href="/advanced/hooks">
+    Intercept tool calls programmatically with hooks.
+  </Card>
+</CardGroup>

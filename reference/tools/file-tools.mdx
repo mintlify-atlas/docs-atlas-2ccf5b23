@@ -1,0 +1,173 @@
+---
+title: "File tools"
+description: "Tools for reading, writing, and editing files. Claude uses these on every task that touches code or text."
+---
+
+Claude Code provides four file tools: `FileReadTool` for reading any file type, `FileWriteTool` for creating or overwriting files, `FileEditTool` for targeted in-place edits, and `NotebookEditTool` for Jupyter notebooks.
+
+<Note>
+All file tools require the file path to be absolute. Relative paths are automatically expanded to absolute paths using the current working directory.
+</Note>
+
+## FileReadTool
+
+Reads the content of a file and returns it to Claude. Supports text files, images, PDFs, and Jupyter notebooks (`.ipynb`).
+
+### Parameters
+
+<ParamField path="file_path" type="string" required>
+  Absolute path to the file to read.
+</ParamField>
+
+<ParamField path="offset" type="number">
+  Line number to start reading from (1-indexed). Use this when a file is too large to read in one call. Defaults to 1.
+</ParamField>
+
+<ParamField path="limit" type="number">
+  Number of lines to read. Use together with `offset` to read a specific range. If omitted, reads to the end of the file (up to the token limit).
+</ParamField>
+
+<ParamField path="pages" type="string">
+  Page range for PDF files, e.g. `"1-5"`, `"3"`, or `"10-20"`. Only applicable to PDF files. Maximum 20 pages per request.
+</ParamField>
+
+### Supported file types
+
+| Type | Behavior |
+|---|---|
+| Text files (`.ts`, `.py`, `.md`, etc.) | Returns content with line numbers. Lines are prefixed `N: content`. |
+| Images (`.png`, `.jpg`, `.gif`, `.webp`) | Returns base64-encoded image data sent as a vision block. Automatically resized to fit the token budget. |
+| PDFs (`.pdf`) | Sent as a document block. Use `pages` to read a specific range for large PDFs. |
+| Jupyter notebooks (`.ipynb`) | Cells are parsed and returned as structured content. |
+
+### Large file handling
+
+For files larger than the token limit, the tool returns an error suggesting you use `offset` and `limit` to read the file in sections. You can also use `GrepTool` or `BashTool` to search for specific content without reading the whole file.
+
+### Example
+
+```
+User: What does the `buildTool` function do?
+
+Claude: I'll read the Tool.ts file to find it.
+[FileReadTool: { "file_path": "/project/src/Tool.ts", "offset": 1, "limit": 80 }]
+```
+
+## FileWriteTool
+
+Creates a new file or overwrites an existing file with the provided content. The entire content is written in a single operation.
+
+<Warning>
+`FileWriteTool` overwrites the file completely. If you only want to change a few lines, use `FileEditTool` instead — it is more efficient and less likely to introduce unintended changes.
+</Warning>
+
+### Parameters
+
+<ParamField path="file_path" type="string" required>
+  Absolute path to the file to write. Parent directories are created automatically if they do not exist.
+</ParamField>
+
+<ParamField path="content" type="string" required>
+  The full content to write to the file.
+</ParamField>
+
+### Behavior
+
+- If the file does not exist, it is created along with any missing parent directories.
+- If the file exists, it is overwritten. Claude must have read the file before writing to it — the tool validates that the file has not been modified since it was last read.
+- The tool preserves the original file encoding (UTF-8 or UTF-16 LE).
+
+### Example
+
+```
+User: Create a new utility file for formatting dates.
+
+Claude: I'll create the file now.
+[FileWriteTool: {
+  "file_path": "/project/src/utils/dateFormat.ts",
+  "content": "export function formatDate(date: Date): string {\n  return date.toISOString().split('T')[0]\n}\n"
+}]
+```
+
+## FileEditTool
+
+Makes a targeted edit to an existing file by replacing one specific string with another. This is the preferred tool for small, focused changes because it sends only the changed portion rather than the entire file.
+
+### Parameters
+
+<ParamField path="file_path" type="string" required>
+  Absolute path to the file to edit.
+</ParamField>
+
+<ParamField path="old_string" type="string" required>
+  The exact string to find and replace. Must match the file content character-for-character, including whitespace and indentation. Must appear exactly once in the file unless `replace_all` is set to `true`.
+</ParamField>
+
+<ParamField path="new_string" type="string" required>
+  The string to replace `old_string` with. Can be empty to delete the matched text.
+</ParamField>
+
+<ParamField path="replace_all" type="boolean">
+  When `true`, replaces every occurrence of `old_string` in the file. Defaults to `false`. If `false` and `old_string` appears more than once, the tool returns an error.
+</ParamField>
+
+### How it works
+
+1. Claude reads the file first to get the current content.
+2. The tool searches for an exact match of `old_string` in the file.
+3. If exactly one match is found (or `replace_all` is `true`), the match is replaced with `new_string`.
+4. The updated file is written back to disk.
+
+### Error conditions
+
+| Error | Cause |
+|---|---|
+| `String to replace not found in file` | `old_string` does not appear in the file. Check whitespace, indentation, and line endings. |
+| `Found N matches… replace_all is false` | `old_string` appears multiple times. Add more surrounding context to make it unique, or set `replace_all: true`. |
+| `File has not been read yet` | `FileReadTool` must be called before `FileEditTool`. |
+| `File has been modified since read` | The file changed after the last read. Call `FileReadTool` again to refresh the state. |
+
+### Example
+
+```
+User: Change the function name from `formatDate` to `toISODate`.
+
+Claude: I'll make that change.
+[FileEditTool: {
+  "file_path": "/project/src/utils/dateFormat.ts",
+  "old_string": "export function formatDate(date: Date): string {",
+  "new_string": "export function toISODate(date: Date): string {"
+}]
+```
+
+<Tip>
+When `old_string` is not unique enough, include the surrounding lines to provide context. More context makes the match unique and prevents accidental replacements elsewhere in the file.
+</Tip>
+
+## NotebookEditTool
+
+Edits individual cells in a Jupyter notebook (`.ipynb` file). Unlike `FileEditTool`, which works on raw text, `NotebookEditTool` understands notebook structure and operates on cells by index.
+
+### How it differs from FileEditTool
+
+`FileEditTool` cannot be used on `.ipynb` files — it will return an error directing you to use `NotebookEditTool` instead. Jupyter notebooks store cell content as JSON arrays, so character-level string matching would be unreliable. `NotebookEditTool` operates at the cell level and preserves notebook metadata.
+
+### Use cases
+
+- Update the source code of a specific code cell.
+- Change the text of a markdown cell.
+- Insert or replace cells in a notebook without corrupting the JSON structure.
+
+### Example
+
+```
+User: Fix the import in the first code cell of the analysis notebook.
+
+Claude: I'll read the notebook first, then update the cell.
+[FileReadTool: { "file_path": "/project/analysis.ipynb" }]
+[NotebookEditTool: {
+  "file_path": "/project/analysis.ipynb",
+  "cell_index": 0,
+  "new_source": "import pandas as pd\nimport numpy as np\n"
+}]
+```

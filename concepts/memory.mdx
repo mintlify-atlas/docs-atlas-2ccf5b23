@@ -1,0 +1,208 @@
+---
+title: "Memory and context"
+description: "How Claude Code stores and retrieves information: in-session context, persistent memory files, CLAUDE.md project instructions, and context window management."
+---
+
+Claude Code has two distinct kinds of memory: **in-session context** (the conversation history sent to the API each turn) and **persistent memory** (files written to disk that survive across sessions). Understanding both helps you give Claude the right information at the right time.
+
+---
+
+## In-session context
+
+Everything in the current conversation window — your messages, Claude's replies, and tool results — is sent to the Anthropic API on each turn. This is the context window.
+
+The context window is finite. As a session grows, older messages consume capacity that could be used for new information. Claude Code manages this automatically, but you can also compress the context manually with `/compact`.
+
+### /compact — compress context
+
+When the context window is getting full, `/compact` asks Claude to summarize the conversation so far into a compact representation and start fresh from that summary.
+
+```
+/compact
+```
+
+You can also ask Claude to compact with a specific focus:
+
+```
+/compact Focus on the changes made to the auth module
+```
+
+<Tip>
+Run `/compact` before starting a large new task in a long session. A focused context gives Claude better results than a sprawling history.
+</Tip>
+
+---
+
+## Persistent memory
+
+Persistent memory is stored as Markdown files on disk and loaded into every new session automatically. It gives Claude facts that outlast a single conversation.
+
+### Memory directory
+
+By default, persistent memory lives at:
+
+```
+~/.claude/memory/
+```
+
+For project-specific memory, Claude Code uses a per-project directory derived from the git root:
+
+```
+~/.claude/projects/<sanitized-project-path>/memory/
+```
+
+The entrypoint is always `MEMORY.md` inside that directory. Claude reads this file at the start of each session (subject to a 200-line / 25 KB cap to keep it from dominating the context).
+
+<Info>
+The memory directory location can be overridden with the `CLAUDE_CODE_REMOTE_MEMORY_DIR` environment variable or the `autoMemoryDirectory` setting in `settings.json`.
+</Info>
+
+### Memory types
+
+Memories are classified into four types. Claude uses the type to decide where to look when recalling information and what to prioritize when writing new memories.
+
+| Type | Scope | What to store |
+|---|---|---|
+| `user` | Always private | Your role, expertise level, preferences, working style |
+| `feedback` | Private (or team if project-wide) | Corrections and validated approaches from past sessions |
+| `project` | Team or private | Project goals, architecture decisions, conventions |
+| `reference` | Team or private | External facts, API endpoints, configuration values |
+
+---
+
+## CLAUDE.md — project instructions
+
+`CLAUDE.md` is a special Markdown file that Claude reads automatically at the start of every session in a project. Use it to give Claude persistent, project-specific instructions that every collaborator benefits from.
+
+### Where Claude looks for CLAUDE.md
+
+Claude searches for `CLAUDE.md` files in multiple locations and merges them:
+
+1. `~/.claude/CLAUDE.md` — your personal global instructions
+2. `CLAUDE.md` in the project root (git root)
+3. `CLAUDE.md` in any parent directory up to the filesystem root
+4. `CLAUDE.md` in any subdirectory Claude visits during a session
+
+Files found lower in the hierarchy take precedence for conflicting instructions.
+
+### Setting up project memory with CLAUDE.md
+
+<Steps>
+  <Step title="Create CLAUDE.md in your project root">
+    Create a `CLAUDE.md` file at the root of your repository (next to `.git/`).
+
+    ```bash
+    touch CLAUDE.md
+    ```
+  </Step>
+
+  <Step title="Add project-specific instructions">
+    Write instructions in plain Markdown. Focus on things Claude cannot infer from the code — conventions, constraints, and context.
+
+    ```markdown
+    # Project instructions
+
+    ## Tech stack
+    - Runtime: Node.js 22, TypeScript strict
+    - Database: PostgreSQL 16 via Drizzle ORM
+    - Tests: Vitest — run with `npm test`
+
+    ## Conventions
+    - All async functions must handle errors with Result types (never throw)
+    - Database queries go in `src/db/queries/`, never inline in route handlers
+    - Commit messages follow Conventional Commits
+
+    ## Important files
+    - `src/db/schema.ts` — single source of truth for the database schema
+    - `docs/api.md` — API contract; do not change endpoints without updating this
+    ```
+  </Step>
+
+  <Step title="Commit CLAUDE.md to the repository">
+    Checking `CLAUDE.md` into version control means every team member and CI run gets the same project instructions automatically.
+
+    ```bash
+    git add CLAUDE.md
+    git commit -m "docs: add CLAUDE.md project instructions"
+    ```
+  </Step>
+
+  <Step title="Add a personal global CLAUDE.md (optional)">
+    Create `~/.claude/CLAUDE.md` for instructions that apply across all your projects — your preferred coding style, editor shortcuts, or personal conventions.
+
+    ```markdown
+    # Personal instructions
+
+    - I prefer concise, direct explanations without preamble
+    - Always use TypeScript — never suggest plain JavaScript
+    - When suggesting a refactor, show the before and after side by side
+    ```
+  </Step>
+</Steps>
+
+---
+
+## The /memory command
+
+`/memory` opens an interactive editor for your persistent memory files. Use it to view, add, or edit the facts Claude remembers about you and your projects.
+
+```
+/memory
+```
+
+This opens your configured editor (`$VISUAL` or `$EDITOR`) with the relevant memory file. You can edit it like any Markdown file. Changes take effect in the next session (or after `/compact`).
+
+<Info>
+If no editor is configured, Claude Code falls back to a built-in line editor. Set `$EDITOR` or `$VISUAL` in your shell profile to use your preferred editor.
+</Info>
+
+---
+
+## Automatic memory extraction
+
+At the end of each conversation turn, Claude Code can automatically extract key facts from the conversation and save them to your memory directory. This happens in a background agent so it does not block the main conversation.
+
+Facts are extracted for all four memory types: things you told Claude about yourself (`user`), feedback you gave (`feedback`), project context (`project`), and reference information (`reference`).
+
+To disable automatic memory extraction:
+
+```bash
+export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+```
+
+Or in `settings.json`:
+
+```json
+{
+  "autoMemoryEnabled": false
+}
+```
+
+---
+
+## Team memory sync
+
+When multiple people work on the same project, shared memories can be stored in a team memory directory. Team memories are checked into version control or stored on a shared filesystem so every team member's Claude session has access to the same project knowledge.
+
+Team memory is separate from private memory — facts like personal preferences or individual feedback are never written to the team directory.
+
+See the [configuration guide](/guides/configuration) for how to set up a shared team memory directory.
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Settings for memory directory paths and auto-memory behavior.
+  </Card>
+  <Card title="Commands: session management" icon="terminal" href="/reference/commands/session-management">
+    /compact, /resume, and other session commands.
+  </Card>
+  <Card title="Architecture" icon="layers" href="/concepts/architecture">
+    How memory is loaded into the system prompt via QueryEngine.
+  </Card>
+  <Card title="Skills" icon="sparkles" href="/guides/skills">
+    Reusable workflows that can read and write memory.
+  </Card>
+</CardGroup>

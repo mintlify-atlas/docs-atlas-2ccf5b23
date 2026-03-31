@@ -1,0 +1,136 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Claude Code",
+  "projectDescription": "An agentic CLI coding assistant powered by Claude that lets you edit files, run commands, search codebases, and manage git workflows through natural language in the terminal.",
+  "theme": "palm",
+  "primaryColor": "#7c7c7c",
+  "lightColor": "#0a0a0a",
+  "darkColor": "#c7c7c7",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/tool-system",
+              "concepts/permission-model",
+              "concepts/memory"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/configuration",
+              "guides/mcp-servers",
+              "guides/skills",
+              "guides/plugins",
+              "guides/agent-swarms",
+              "guides/ide-integration"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/hooks",
+              "advanced/sdk",
+              "advanced/headless-mode",
+              "advanced/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "reference/commands/overview",
+              "reference/commands/git-workflows",
+              "reference/commands/session-management",
+              "reference/commands/configuration"
+            ]
+          },
+          {
+            "group": "Tools",
+            "pages": [
+              "reference/tools/overview",
+              "reference/tools/file-tools",
+              "reference/tools/search-tools",
+              "reference/tools/agent-tools",
+              "reference/tools/web-tools"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Natural language coding via terminal REPL",
+    "Agentic tool execution (file read/write/edit, bash, grep, glob)",
+    "Git workflow automation (commit, review, PR comments, diff)",
+    "MCP (Model Context Protocol) server integration",
+    "Multi-agent orchestration and agent swarms",
+    "Skill system for reusable workflows",
+    "Plugin architecture for extensibility",
+    "IDE bridge for VS Code and JetBrains",
+    "Persistent memory and context management",
+    "Configurable permission model with plan mode",
+    "OAuth 2.0 authentication with macOS Keychain support",
+    "Voice input support",
+    "Vim mode"
+  ],
+  "publicApiSurface": [
+    "claude (REPL mode)",
+    "claude <prompt> (non-interactive)",
+    "claude --print / -p (headless/print mode)",
+    "claude --model <model>",
+    "claude --allowedTools / --disallowedTools",
+    "claude --mcp-config <file>",
+    "claude --output-format (text|json|stream-json)",
+    "/commit",
+    "/review",
+    "/compact",
+    "/mcp",
+    "/config",
+    "/doctor",
+    "/login / /logout",
+    "/memory",
+    "/skills",
+    "/tasks",
+    "/resume",
+    "/share",
+    "/vim",
+    "/diff",
+    "/theme",
+    "BashTool",
+    "FileReadTool",
+    "FileWriteTool",
+    "FileEditTool",
+    "GlobTool",
+    "GrepTool",
+    "WebFetchTool",
+    "WebSearchTool",
+    "AgentTool",
+    "SkillTool",
+    "MCPTool",
+    "query() SDK function",
+    "unstable_v2_createSession()",
+    "unstable_v2_resumeSession()",
+    "unstable_v2_prompt()",
+    "getSessionMessages()",
+    "tool() SDK builder",
+    "createSdkMcpServer()"
+  ]
+}

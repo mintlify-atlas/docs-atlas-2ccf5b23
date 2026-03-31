@@ -1,0 +1,139 @@
+---
+title: "Git workflow commands"
+description: "Reference for Claude Code slash commands that integrate with git: /commit, /review, /diff, and /pr_comments."
+---
+
+Claude Code ships four commands that integrate directly with your git workflow. Each one runs inside the REPL and uses the GitHub CLI (`gh`) or standard `git` commands under the hood.
+
+## /commit
+
+Generates and creates a git commit for your current changes.
+
+When you run `/commit`, Claude Code:
+
+1. Reads the current `git status`, `git diff HEAD`, branch name, and recent commit history.
+2. Drafts a concise commit message that follows the repository's existing style.
+3. Stages relevant files and creates the commit using a HEREDOC to avoid shell-quoting issues.
+
+<Note>
+`/commit` never amends existing commits, skips hooks, or commits files that look like they contain secrets (`.env`, `credentials.json`, etc.). If no changes are staged or unstaged, it will not create an empty commit.
+</Note>
+
+The command is restricted to three git operations: `git add`, `git status`, and `git commit`. No other tools are invoked during commit creation.
+
+<CodeGroup>
+```bash Basic usage
+> /commit
+# Claude stages relevant files and creates a commit
+# ✔ Created commit abc1234: "fix: resolve null pointer in auth middleware"
+```
+
+```bash With unstaged changes
+> /commit
+# Claude reviews all staged and unstaged changes, drafts a message,
+# and runs git add + git commit in a single step.
+```
+</CodeGroup>
+
+**Allowed git operations**
+
+| Operation | Purpose |
+|---|---|
+| `git add` | Stage files before committing |
+| `git status` | Read which files have changed |
+| `git commit` | Create the commit |
+
+---
+
+## /review
+
+Reviews a GitHub pull request and provides structured feedback.
+
+Without arguments, `/review` runs `gh pr list` to show open PRs and asks you to select one. If you pass a PR number, it fetches that PR directly.
+
+```bash
+> /review
+# Shows list of open PRs to pick from
+
+> /review 42
+# Reviews PR #42 directly
+```
+
+Claude Code fetches the PR description with `gh pr view <number>` and the full diff with `gh pr diff <number>`, then produces a review covering:
+
+- An overview of what the PR does
+- Code quality and style analysis
+- Specific suggestions for improvement
+- Potential issues or risks
+- Test coverage and security considerations
+
+<Note>
+`/review` requires the GitHub CLI (`gh`) to be installed and authenticated. Run `gh auth status` to verify.
+</Note>
+
+**Ultrareview**
+
+A separate `/ultrareview` command is available on supported accounts. It runs a deeper, automated bug-hunting analysis (10–20 minutes) via Claude Code on the web, rather than locally. It is only shown when your account has access.
+
+---
+
+## /diff
+
+Opens an interactive diff viewer showing uncommitted changes and per-turn diffs within the current conversation.
+
+```bash
+> /diff
+# Opens the DiffDialog UI showing current working tree changes
+# and what changed each turn in this session
+```
+
+The viewer is rendered inside the REPL as a full-screen component. It shows:
+
+- **Uncommitted changes** — the current working tree diff against `HEAD`
+- **Per-turn diffs** — what files changed during each turn of the current conversation
+
+Press `q` or `Escape` to close the viewer and return to the REPL.
+
+<Tip>
+Use `/diff` before running `/commit` to review what you're about to commit.
+</Tip>
+
+---
+
+## /pr_comments
+
+Fetches and displays comments from the current GitHub pull request, including both PR-level comments and inline code review comments.
+
+```bash
+> /pr_comments
+# Fetches all comments for the PR associated with the current branch
+
+> /pr_comments 99
+# Fetches comments for PR #99
+```
+
+The command:
+
+1. Runs `gh pr view --json number,headRepository` to find the current PR and repo.
+2. Calls the GitHub API for PR-level comments (`/issues/{number}/comments`).
+3. Calls the GitHub API for inline code review comments (`/pulls/{number}/comments`).
+4. Formats the output with author, file path, line number, diff hunk context, and comment body.
+
+Output format:
+
+```
+## Comments
+
+@username src/auth/middleware.ts#42:
+  ```diff
+  -  if (!token) return null
+  +  if (!token) throw new AuthError()
+  ```
+  > This should throw rather than return null — callers don't check the return value.
+```
+
+<Note>
+`/pr_comments` requires the GitHub CLI (`gh`) and `jq` to be installed. The command resolves the PR from the current branch automatically. You can pass a PR number as an argument to override this.
+</Note>
+
+If there are no comments on the PR, the command returns `No comments found.`

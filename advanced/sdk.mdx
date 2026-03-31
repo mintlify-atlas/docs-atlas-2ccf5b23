@@ -1,0 +1,317 @@
+---
+title: "SDK"
+description: "Programmatic access to Claude Code from TypeScript and JavaScript."
+---
+
+The Claude Code SDK lets you drive Claude Code programmatically from TypeScript or JavaScript. Use it to build automation pipelines, embed Claude Code inside your own tools, or manage multi-turn sessions from code.
+
+<Warning>
+  Functions prefixed with `unstable_v2_` are marked `@alpha` and may change between releases without a major version bump.
+</Warning>
+
+## Installation
+
+```bash
+npm install @anthropic-ai/claude-code
+```
+
+## Core functions
+
+### `query()` — one-shot query
+
+The primary entry point for driving Claude Code. Returns an async iterable of SDK messages.
+
+```typescript
+import { query } from '@anthropic-ai/claude-code'
+
+const stream = query({
+  prompt: 'List all TypeScript files in the src directory',
+  options: {
+    cwd: '/path/to/project',
+    allowedTools: ['Bash', 'Glob'],
+  },
+})
+
+for await (const message of stream) {
+  if (message.type === 'assistant') {
+    console.log(message.message)
+  }
+  if (message.type === 'result') {
+    console.log('Cost:', message.total_cost_usd)
+  }
+}
+```
+
+### `unstable_v2_prompt()` — one-shot convenience function
+
+A simpler wrapper around `query()` for single prompts. Returns the final `SDKResultMessage` directly.
+
+```typescript
+import { unstable_v2_prompt } from '@anthropic-ai/claude-code'
+
+const result = await unstable_v2_prompt('What files are in this directory?', {
+  model: 'claude-sonnet-4-6',
+  cwd: '/path/to/project',
+})
+
+console.log(result.result)         // final text response
+console.log(result.total_cost_usd) // cost in USD
+console.log(result.num_turns)      // number of agentic turns
+```
+
+### `unstable_v2_createSession()` — persistent session
+
+Create a persistent session for multi-turn conversations. The session object provides a `send()` method that returns an async iterable of messages for each turn.
+
+```typescript
+import { unstable_v2_createSession } from '@anthropic-ai/claude-code'
+
+const session = unstable_v2_createSession({
+  model: 'claude-sonnet-4-6',
+  cwd: '/path/to/project',
+})
+
+// First turn
+for await (const msg of session.send('What is in package.json?')) {
+  if (msg.type === 'result') console.log(msg.result)
+}
+
+// Second turn — session context is preserved
+for await (const msg of session.send('Now summarise the dependencies')) {
+  if (msg.type === 'result') console.log(msg.result)
+}
+```
+
+### `unstable_v2_resumeSession()` — resume by ID
+
+Resume an existing session using its UUID. Conversation history is loaded from the transcript file.
+
+```typescript
+import { unstable_v2_resumeSession } from '@anthropic-ai/claude-code'
+
+const session = unstable_v2_resumeSession('550e8400-e29b-41d4-a716-446655440000', {
+  model: 'claude-sonnet-4-6',
+  cwd: '/path/to/project',
+})
+
+for await (const msg of session.send('Continue where we left off')) {
+  if (msg.type === 'result') console.log(msg.result)
+}
+```
+
+## Session management functions
+
+<Tabs>
+  <Tab title="listSessions">
+    Returns sessions with metadata. Provide `dir` to scope to a project directory, or omit it to list sessions across all projects. Supports pagination via `limit` and `offset`.
+
+    ```typescript
+    import { listSessions } from '@anthropic-ai/claude-code'
+
+    // All sessions for a project
+    const sessions = await listSessions({ dir: '/path/to/project' })
+
+    // Paginate
+    const page1 = await listSessions({ limit: 50 })
+    const page2 = await listSessions({ limit: 50, offset: 50 })
+
+    for (const session of sessions) {
+      console.log(session.sessionId, session.title, session.createdAt)
+    }
+    ```
+  </Tab>
+  <Tab title="getSessionInfo">
+    Reads metadata for a single session by ID. Returns `undefined` if the session file is not found.
+
+    ```typescript
+    import { getSessionInfo } from '@anthropic-ai/claude-code'
+
+    const info = await getSessionInfo('550e8400-e29b-41d4-a716-446655440000', {
+      dir: '/path/to/project',
+    })
+
+    if (info) {
+      console.log(info.title, info.createdAt)
+    }
+    ```
+  </Tab>
+  <Tab title="getSessionMessages">
+    Reads the conversation transcript for a session. Returns user and assistant messages in chronological order. Pass `includeSystemMessages: true` to also include system messages.
+
+    ```typescript
+    import { getSessionMessages } from '@anthropic-ai/claude-code'
+
+    const messages = await getSessionMessages('550e8400-e29b-41d4-a716-446655440000', {
+      dir: '/path/to/project',
+      limit: 100,
+      offset: 0,
+      includeSystemMessages: false,
+    })
+
+    for (const msg of messages) {
+      console.log(msg.role, msg.content)
+    }
+    ```
+  </Tab>
+  <Tab title="forkSession">
+    Copies a session into a new session with fresh UUIDs. Supports branching from a specific message via `upToMessageId`. Forked sessions do not inherit file-history snapshots.
+
+    ```typescript
+    import { forkSession } from '@anthropic-ai/claude-code'
+
+    const { sessionId: forkedId } = await forkSession(
+      '550e8400-e29b-41d4-a716-446655440000',
+      {
+        title: 'Forked experiment',
+        upToMessageId: 'some-message-uuid',
+      }
+    )
+
+    console.log('New session:', forkedId)
+    ```
+  </Tab>
+</Tabs>
+
+## Custom tools
+
+Use `tool()` to define custom tools that Claude can call during a session. Tools are typed using Zod schemas.
+
+```typescript
+import { tool, query } from '@anthropic-ai/claude-code'
+import { z } from 'zod'
+
+const myTool = tool(
+  'get_weather',
+  'Returns the current weather for a city',
+  {
+    city: z.string().describe('City name'),
+    units: z.enum(['celsius', 'fahrenheit']).optional(),
+  },
+  async ({ city, units }) => {
+    const weather = await fetchWeather(city, units ?? 'celsius')
+    return {
+      content: [{ type: 'text', text: JSON.stringify(weather) }],
+    }
+  }
+)
+
+const stream = query({
+  prompt: 'What is the weather in London?',
+  options: {
+    tools: [myTool],
+  },
+})
+
+for await (const msg of stream) {
+  if (msg.type === 'result') console.log(msg.result)
+}
+```
+
+### `tool()` signature
+
+```typescript
+function tool<Schema extends AnyZodRawShape>(
+  name: string,
+  description: string,
+  inputSchema: Schema,
+  handler: (args: InferShape<Schema>, extra: unknown) => Promise<CallToolResult>,
+  extras?: {
+    annotations?: ToolAnnotations
+    searchHint?: string
+    alwaysLoad?: boolean
+  }
+): SdkMcpToolDefinition<Schema>
+```
+
+## In-process MCP server
+
+`createSdkMcpServer()` wraps one or more `tool()` definitions into an in-process MCP server that runs in the same Node.js process as your code. This avoids the overhead of spawning a separate MCP process.
+
+```typescript
+import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-code'
+import { z } from 'zod'
+
+const dbTool = tool(
+  'query_database',
+  'Run a read-only SQL query',
+  { sql: z.string() },
+  async ({ sql }) => {
+    const rows = await db.query(sql)
+    return {
+      content: [{ type: 'text', text: JSON.stringify(rows) }],
+    }
+  }
+)
+
+const mcpServer = createSdkMcpServer({
+  name: 'my-db-server',
+  version: '1.0.0',
+  tools: [dbTool],
+})
+
+const stream = query({
+  prompt: 'How many users signed up last week?',
+  options: {
+    mcpServers: [mcpServer],
+  },
+})
+
+for await (const msg of stream) {
+  if (msg.type === 'result') console.log(msg.result)
+}
+```
+
+<Note>
+  If your in-process MCP tool calls will take longer than 60 seconds, set the `CLAUDE_CODE_STREAM_CLOSE_TIMEOUT` environment variable to a higher value (in milliseconds).
+</Note>
+
+## Session lifecycle
+
+```
+create/resume session
+        │
+        ▼
+  send(message) ──► async iterable of SDKMessages
+        │
+        │   message types:
+        │   - system (init)
+        │   - user
+        │   - assistant
+        │   - tool_progress
+        │   - result  ◄─── final message with cost + stop_reason
+        │
+        ▼
+  send(next message) or end session
+```
+
+The `result` message is always the last message in each turn and contains:
+
+```typescript
+{
+  type: 'result',
+  subtype: 'success',          // or error subtype
+  result: string,              // final assistant text
+  num_turns: number,
+  total_cost_usd: number,
+  duration_ms: number,
+  is_error: boolean,
+  stop_reason: string | null,
+  usage: NonNullableUsage,
+  modelUsage: Record<string, ModelUsage>,
+}
+```
+
+## Additional session operations
+
+```typescript
+import { renameSession, tagSession } from '@anthropic-ai/claude-code'
+
+// Rename a session
+await renameSession('550e8400-e29b-41d4-a716-446655440000', 'Refactor auth module')
+
+// Tag a session
+await tagSession('550e8400-e29b-41d4-a716-446655440000', 'important')
+
+// Clear a tag
+await tagSession('550e8400-e29b-41d4-a716-446655440000', null)
+```

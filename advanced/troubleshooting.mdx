@@ -1,0 +1,265 @@
+---
+title: "Troubleshooting"
+description: "Diagnose and fix common issues with Claude Code."
+---
+
+## The `/doctor` command
+
+Run `/doctor` inside a Claude Code session to automatically diagnose your environment. The command checks your installation, authentication status, network connectivity, MCP server connections, and configuration files, then reports any problems it finds with suggested fixes.
+
+```
+/doctor
+```
+
+## Common issues
+
+<AccordionGroup>
+  <Accordion title="Authentication failures">
+    **Symptoms:** Claude Code prompts you to log in repeatedly, or API calls fail with `authentication_failed`.
+
+    **Fixes:**
+
+    1. Re-run the login flow:
+       ```
+       /login
+       ```
+
+    2. Check that your API key or OAuth token is set correctly. If you use an API key, verify the environment variable:
+       ```bash
+       echo $ANTHROPIC_API_KEY
+       ```
+
+    3. If you are behind a corporate proxy or VPN, ensure that `api.anthropic.com` is reachable:
+       ```bash
+       curl -I https://api.anthropic.com
+       ```
+
+    4. On macOS, if the keychain lookup is failing, try logging out and back in:
+       ```
+       /logout
+       /login
+       ```
+
+    5. For third-party providers (Bedrock, Vertex, Foundry), check that the respective credentials are configured in your environment — Claude Code uses AWS credentials, `gcloud` ADC, or Foundry tokens depending on the provider.
+  </Accordion>
+
+  <Accordion title="Tool permission denied">
+    **Symptoms:** Claude Code asks for permission repeatedly, or a tool call fails with a permission error.
+
+    **Fixes:**
+
+    1. Check the current permission mode with `/config`. Set it to `acceptEdits` to auto-approve file operations, or `bypassPermissions` in a trusted sandbox.
+
+    2. Review your `allowedTools` and `deniedTools` settings in `~/.claude/settings.json` or `.claude/settings.json`.
+
+    3. If running in headless mode (`-p`), use `--allowedTools` to explicitly allow the tools Claude needs:
+       ```bash
+       claude -p "Run tests" --allowedTools "Bash(npm test)" "Read"
+       ```
+
+    4. Use `--permission-mode bypassPermissions` only in sandboxed environments with no internet access:
+       ```bash
+       claude -p "Refactor code" --permission-mode bypassPermissions
+       ```
+
+    <Warning>
+      `bypassPermissions` disables all safety checks. Only use it in fully isolated environments.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Context window full">
+    **Symptoms:** Claude Code reports the context window is full, responses become truncated, or you see a "context limit" error.
+
+    **Fixes:**
+
+    1. Run `/compact` to compress the conversation context. Claude summarises the conversation so far and continues with the summary in the context window.
+
+    2. Start a fresh session with `/clear` if the current conversation is no longer needed.
+
+    3. Use `/cost` to monitor your context window utilisation:
+       ```
+       /cost
+       ```
+
+    4. For very large codebases, use `--allowedTools` in headless mode to restrict tools and reduce tool-call verbosity in the transcript.
+
+    5. Consider enabling fast mode from settings — it uses a smaller, faster model for sub-tasks, which consumes fewer tokens.
+  </Accordion>
+
+  <Accordion title="MCP server not connecting">
+    **Symptoms:** MCP tools are missing, or Claude Code reports an MCP server as `failed` or `pending`.
+
+    **Fixes:**
+
+    1. Run `/doctor` — it checks all configured MCP servers and reports connection errors.
+
+    2. Run `/mcp` to see the connection status of each server.
+
+     3. Check your MCP configuration file for syntax errors:
+        ```bash
+        # For project-level MCP config:
+        cat .mcp.json | python3 -m json.tool
+
+        # For user-level MCP config in settings:
+        cat ~/.claude/settings.json | python3 -m json.tool
+        ```
+
+    4. Enable debug output to see MCP server stderr:
+       ```bash
+       claude --debug
+       ```
+
+    5. Test the MCP server command directly in your terminal to confirm it starts without errors:
+       ```bash
+       node /path/to/mcp-server.js
+       ```
+
+    6. If the server requires environment variables, add them to the `env` field in the server config:
+       ```json
+       {
+         "myserver": {
+           "type": "stdio",
+           "command": "node",
+           "args": ["server.js"],
+           "env": { "DATABASE_URL": "postgres://..." }
+         }
+       }
+       ```
+
+    7. In headless mode, use `--mcp-config` to load a config file explicitly, and `--strict-mcp-config` to ignore all other MCP configuration:
+       ```bash
+       claude -p "Query the database" --mcp-config ./mcp.json --strict-mcp-config
+       ```
+  </Accordion>
+
+  <Accordion title="High token usage and cost">
+    **Symptoms:** API costs are higher than expected, or rate limits are hit frequently.
+
+    **Fixes:**
+
+    1. Use `/cost` to see a breakdown of token usage for the current session:
+       ```
+       /cost
+       ```
+
+    2. Enable fast mode in settings. Fast mode uses a smaller model for routine sub-tasks and significantly reduces cost per session.
+
+    3. Use `/compact` regularly to compress the context window rather than letting it fill up.
+
+    4. In headless mode, use `--max-budget-usd` to cap spending per run:
+       ```bash
+       claude -p "Large task" --max-budget-usd 0.25
+       ```
+
+    5. Use `--max-turns` to limit agentic turns in scripts:
+       ```bash
+       claude -p "Fix lint errors" --max-turns 10
+       ```
+
+    6. Restrict available tools with `--allowedTools` — fewer tools means fewer tool-call round-trips:
+       ```bash
+       claude -p "Review code" --allowedTools "Read,Glob"
+       ```
+  </Accordion>
+
+  <Accordion title="CLI not found after install">
+    **Symptoms:** Running `claude` in the terminal gives `command not found`.
+
+    **Fixes:**
+
+    1. Check that npm's global bin directory is in your `PATH`:
+       ```bash
+       npm bin -g
+       # Add the output to your PATH in ~/.bashrc or ~/.zshrc
+       export PATH="$(npm bin -g):$PATH"
+       ```
+
+    2. Reload your shell profile:
+       ```bash
+       source ~/.bashrc   # or ~/.zshrc
+       ```
+
+    3. If you used `npx` to install, try a global install instead:
+       ```bash
+       npm install -g @anthropic-ai/claude-code
+       ```
+
+    4. On macOS with Homebrew-managed Node, the global bin path may differ. Find it with:
+       ```bash
+       which node
+       # e.g. /opt/homebrew/bin/node
+       # → global bin is /opt/homebrew/bin
+       ```
+
+    5. Verify the binary exists after install:
+       ```bash
+       ls "$(npm bin -g)/claude"
+       ```
+  </Accordion>
+</AccordionGroup>
+
+## Log locations
+
+Claude Code writes logs to the following locations:
+
+| Log | Location |
+|---|---|
+| Session transcripts | `~/.claude/projects/<project-hash>/<session-id>.jsonl` |
+| Debug logs | Written to stderr when `--debug` is passed, or to a file with `--debug-file <path>` |
+| MCP server output | Shown in stderr when `--debug` is passed |
+
+To write debug logs to a file for analysis:
+
+```bash
+claude --debug-file /tmp/claude-debug.log
+```
+
+## Resetting configuration
+
+If your Claude Code configuration becomes corrupted or you want a clean slate, you can reset it by clearing the `~/.claude/` directory:
+
+```bash
+# Back up first
+cp -r ~/.claude ~/.claude.bak
+
+# Remove all config, sessions, and cached data
+rm -rf ~/.claude
+```
+
+<Warning>
+  This removes all sessions, settings, and stored permissions. Back up anything you want to keep before proceeding.
+</Warning>
+
+To reset only settings without losing session transcripts:
+
+```bash
+rm ~/.claude/settings.json
+rm ~/.claude/settings.local.json
+```
+
+## Checking token usage with `/cost`
+
+The `/cost` command displays token usage and estimated cost for the current session:
+
+```
+/cost
+```
+
+It shows:
+- Input tokens used (including cache reads and cache creations)
+- Output tokens generated
+- Total estimated cost in USD
+- Context window utilisation
+
+## Reporting issues
+
+If you encounter a bug or unexpected behaviour, report it on GitHub:
+
+**[github.com/instructkr/claude-code](https://github.com/instructkr/claude-code)**
+
+When filing an issue, include:
+- The `claude --version` output
+- Your operating system and Node.js version
+- The command you ran (redact any secrets)
+- The full error output (use `--debug-file` to capture it)
+- Whether the issue is reproducible in a fresh directory

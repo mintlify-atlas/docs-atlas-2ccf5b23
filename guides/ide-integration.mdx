@@ -1,0 +1,201 @@
+---
+title: "IDE integration"
+description: "Connect Claude Code to VS Code or JetBrains IDEs for bidirectional communication — file selection, diff viewing, and cursor-position context."
+---
+
+Claude Code's IDE integration lets your editor and the CLI work together. When connected, Claude Code can see your open files and cursor position, and can send diffs back to your IDE for review — eliminating the context-switching between terminal and editor.
+
+## How the bridge works
+
+The bridge is a bidirectional communication layer between the CLI and IDE extensions. Once connected:
+
+- The IDE extension sends the currently open file, cursor position, and selected text to Claude Code as additional context.
+- Claude Code can send file diffs to the IDE for inline review, rather than applying them directly.
+- The connection is authenticated with a short-lived JWT so only the local extension can communicate with the running CLI process.
+
+The bridge runs as part of the `claude` process when the `BRIDGE_MODE` feature flag is active. It exposes a local HTTP/WebSocket endpoint that the IDE extension connects to.
+
+---
+
+## Setting up VS Code integration
+
+<Steps>
+  <Step title="Install the VS Code extension">
+    Search for **Claude Code** in the VS Code Extensions marketplace and install it, or install it from the command line:
+
+    ```bash
+    code --install-extension anthropic.claude-code
+    ```
+  </Step>
+
+  <Step title="Open a project in VS Code">
+    Open the project directory you want to work with. The extension activates per workspace.
+  </Step>
+
+  <Step title="Start Claude Code in the integrated terminal">
+    Open the VS Code integrated terminal and start Claude Code:
+
+    ```bash
+    claude
+    ```
+
+    The extension detects the running Claude Code process and connects automatically via the local bridge.
+  </Step>
+
+  <Step title="Verify the connection">
+    Run the `/ide` command inside Claude Code:
+
+    ```
+    /ide
+    ```
+
+    This shows the current bridge connection status. When connected to VS Code, you should see the IDE name and the active file reported.
+  </Step>
+</Steps>
+
+---
+
+## Setting up JetBrains integration
+
+<Steps>
+  <Step title="Install the JetBrains plugin">
+    Open your JetBrains IDE (IntelliJ IDEA, PyCharm, WebStorm, etc.) and go to **Settings → Plugins → Marketplace**. Search for **Claude Code** and install it.
+
+    Alternatively, install from the JetBrains Marketplace website and drag the `.zip` into the plugin manager.
+  </Step>
+
+  <Step title="Open your project">
+    Open the project directory in your JetBrains IDE. The plugin activates per project.
+  </Step>
+
+  <Step title="Start Claude Code in the built-in terminal">
+    Open the built-in terminal (**View → Tool Windows → Terminal**) and run:
+
+    ```bash
+    claude
+    ```
+
+    The plugin connects to the running CLI process automatically.
+  </Step>
+
+  <Step title="Verify the connection">
+    Run `/ide` inside the CLI session to confirm the bridge is connected:
+
+    ```
+    /ide
+    ```
+
+    You should see the JetBrains IDE reported as the connected environment. The plugin adds a Claude Code panel in the IDE toolbar for quick access to the terminal session.
+  </Step>
+</Steps>
+
+---
+
+## Bridge features
+
+Once connected, the following features are available:
+
+### File and cursor context
+
+The IDE sends the currently focused file path, cursor line/column, and any selected text with each message Claude Code processes. Claude uses this context automatically — you don't need to copy-paste file names or tell Claude where you are in the codebase.
+
+### Diff viewing in the IDE
+
+When Claude makes file changes, it can send diffs to the IDE's built-in diff viewer instead of applying them inline. This lets you review changes before accepting them, using your editor's familiar diff interface.
+
+### MCP integration
+
+When connected to an IDE, Claude Code registers an internal `sse-ide` or `ws-ide` MCP transport that routes tool calls back through the IDE extension. This allows IDE-specific features (like opening files, navigating to symbols, or running tasks) to be exposed as MCP tools.
+
+---
+
+## The `/ide` command
+
+Run `/ide` at any time to check the connection status:
+
+```
+/ide
+```
+
+The output shows:
+- Whether a bridge is connected
+- The name of the connected IDE
+- The currently active file (if any)
+- Connection health
+
+---
+
+## The `/desktop` and `/mobile` commands
+
+`/desktop` and `/mobile` trigger a handoff to the corresponding Claude app. This is useful when you want to continue a conversation in the desktop GUI or on mobile after starting it in the CLI:
+
+```
+/desktop
+```
+
+This generates a session handoff link that opens the current conversation in the Claude desktop application.
+
+```
+/mobile
+```
+
+This generates a QR code or deep link to continue the session on the Claude mobile app.
+
+---
+
+## JWT authentication
+
+The bridge uses short-lived JWTs (JSON Web Tokens) to authenticate IDE connections. The JWT:
+
+- Is generated by the CLI when the bridge starts
+- Has a configurable expiry (default: ~4 hours, refreshed automatically 5 minutes before expiry)
+- Is delivered to the IDE extension via a local handshake over `localhost`
+- Is validated on each request to the bridge endpoint
+
+The refresh cycle is managed automatically. If the JWT expires during an active session, the extension triggers a reconnect flow to obtain a fresh token. No manual action is required.
+
+<Info>JWT-based auth ensures that only the IDE extension running on the same machine can connect to the bridge — not other processes or remote connections.</Info>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="The /ide command shows 'not connected'">
+    - Confirm the IDE extension is installed and enabled for the current workspace.
+    - Make sure Claude Code was started from the IDE's built-in terminal, not an external terminal.
+    - Try restarting the CLI session (`/exit` and `claude` again) while the IDE is open.
+    - Check the extension's output panel for connection errors.
+  </Accordion>
+
+  <Accordion title="File context is not appearing">
+    - Make sure a file is open and focused in the editor.
+    - Some IDE configurations require the extension to have workspace trust enabled.
+    - Run `/ide` to confirm the bridge reports the current file path correctly.
+  </Accordion>
+
+  <Accordion title="Diffs are not appearing in the IDE">
+    - Diff viewing requires the IDE extension version 1.2.0 or later.
+    - Ensure the extension's diff viewer feature is enabled in extension settings.
+    - If diffs are still applied directly, the extension may have fallen back to standard file writes.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="MCP servers" icon="plug" href="/guides/mcp-servers">
+    MCP transports used internally by the IDE bridge.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Configure session behavior and feature flags.
+  </Card>
+  <Card title="Headless mode" icon="terminal" href="/advanced/headless-mode">
+    Run Claude Code non-interactively in CI and scripts.
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/advanced/troubleshooting">
+    Diagnose common issues with Claude Code.
+  </Card>
+</CardGroup>

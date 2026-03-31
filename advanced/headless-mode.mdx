@@ -1,0 +1,225 @@
+---
+title: "Headless mode"
+description: "Run Claude Code non-interactively for scripts, CI pipelines, and programmatic usage."
+---
+
+Headless mode lets you run Claude Code without an interactive terminal session. Pass `--print` (or `-p`) and Claude outputs its response to stdout then exits — no UI, no prompts, no spinner.
+
+## Basic usage
+
+```bash
+# Inline prompt
+claude -p "Summarise the changes in the last git commit"
+
+# Prompt as positional argument
+claude --print "List all TODO comments in src/"
+
+# Pipe from stdin
+echo "What does this regex match?" | claude -p
+```
+
+<Note>
+  The workspace trust dialog is skipped when using `-p`. Only run Claude Code with `--print` in directories you trust.
+</Note>
+
+## Output formats
+
+Control how Claude's response is serialised with `--output-format`. This flag only takes effect when `--print` is also set.
+
+<CodeGroup>
+```bash text (default)
+claude -p "What is 2 + 2?" --output-format text
+# Outputs: 4
+```
+
+```bash json
+claude -p "List the files in src/" --output-format json
+# Outputs a single JSON object when the run completes
+```
+
+```bash stream-json
+claude -p "Refactor the auth module" --output-format stream-json
+# Outputs newline-delimited JSON events in real time
+```
+</CodeGroup>
+
+### JSON output structure
+
+With `--output-format json`, Claude Code writes a single JSON object to stdout after the run completes:
+
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "result": "The final assistant response text",
+  "num_turns": 3,
+  "total_cost_usd": 0.0042,
+  "duration_ms": 8200,
+  "is_error": false,
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 1500,
+    "output_tokens": 420,
+    "cache_read_input_tokens": 800,
+    "cache_creation_input_tokens": 0
+  }
+}
+```
+
+On error, `subtype` is one of `error_during_execution`, `error_max_turns`, or `error_max_budget_usd`, and an `errors` array is included.
+
+### stream-json event stream
+
+With `--output-format stream-json`, Claude Code emits newline-delimited JSON events as they happen:
+
+```jsonl
+{"type":"system","subtype":"init","model":"claude-sonnet-4-6","tools":["Bash","Read","Write"],"session_id":"..."}
+{"type":"assistant","message":{...},"session_id":"..."}
+{"type":"tool_progress","tool_name":"Bash","tool_use_id":"...","session_id":"..."}
+{"type":"result","subtype":"success","result":"Done.","total_cost_usd":0.002,"session_id":"..."}
+```
+
+Pass `--include-partial-messages` to also receive partial assistant message chunks as they stream in.
+
+## Tool control
+
+### `--allowedTools`
+
+Restrict which tools Claude can use. Accepts a space- or comma-separated list. Supports permission rule syntax.
+
+```bash
+claude -p "Run the tests" --allowedTools "Bash(npm test)" "Read"
+```
+
+### `--disallowedTools`
+
+Block specific tools entirely.
+
+```bash
+claude -p "Review this code" --disallowedTools "Bash" "Write"
+```
+
+### `--tools`
+
+Specify the complete set of built-in tools available. Use `""` to disable all tools, `"default"` to restore the full set.
+
+```bash
+# Only file reading tools
+claude -p "Explain the architecture" --tools "Read,Glob,Grep"
+
+# No tools at all (pure text conversation)
+claude -p "What is a monad?" --tools ""
+```
+
+## Model and limits
+
+```bash
+# Use a specific model
+claude -p "Write a haiku" --model claude-sonnet-4-6
+
+# Limit agentic turns (exits early after N turns)
+claude -p "Fix all lint errors" --max-turns 10
+
+# Cap spend
+claude -p "Large refactoring task" --max-budget-usd 0.50
+```
+
+## MCP servers
+
+Load MCP server configuration for a headless run with `--mcp-config`. Accepts one or more JSON file paths or inline JSON strings.
+
+```bash
+# From a file
+claude -p "Query the database" --mcp-config ./mcp-servers.json
+
+# Inline JSON
+claude -p "Use the custom tool" --mcp-config '{"myserver":{"type":"stdio","command":"node","args":["server.js"]}}'
+
+# Use only the servers from --mcp-config, ignoring all other MCP config
+claude -p "Query the database" --mcp-config ./mcp-servers.json --strict-mcp-config
+```
+
+## Using in scripts
+
+<CodeGroup>
+```bash Shell script
+#!/usr/bin/env bash
+set -euo pipefail
+
+RESPONSE=$(claude -p "What files changed in the last commit?" --output-format text)
+echo "Claude says: $RESPONSE"
+```
+
+```bash Parse JSON output
+#!/usr/bin/env bash
+RESULT=$(claude -p "Count the lines in main.ts" --output-format json)
+COST=$(echo "$RESULT" | jq -r '.total_cost_usd')
+TEXT=$(echo "$RESULT" | jq -r '.result')
+
+echo "Response: $TEXT"
+echo "Cost: \$$COST"
+```
+
+```bash Check for errors
+#!/usr/bin/env bash
+RESULT=$(claude -p "Run the test suite" --output-format json 2>&1)
+SUBTYPE=$(echo "$RESULT" | jq -r '.subtype')
+
+if [ "$SUBTYPE" != "success" ]; then
+  echo "Claude failed: $SUBTYPE"
+  echo "$RESULT" | jq -r '.errors[]'
+  exit 1
+fi
+
+echo "Tests result: $(echo "$RESULT" | jq -r '.result')"
+```
+</CodeGroup>
+
+## Using in CI pipelines
+
+<CodeGroup>
+```yaml GitHub Actions
+- name: Review PR changes
+  run: |
+    git diff HEAD~1 | claude -p "Review these changes for bugs and suggest improvements" \
+      --output-format json \
+      --allowedTools "" \
+      --max-turns 5 \
+      > review.json
+
+    cat review.json | jq -r '.result'
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+```yaml Stream events in CI
+- name: Run Claude Code task
+  run: |
+    claude -p "Fix all TypeScript errors" \
+      --output-format stream-json \
+      --allowedTools "Bash(tsc *)" "Read" "Write" \
+      --max-turns 20 | while IFS= read -r line; do
+        TYPE=$(echo "$line" | jq -r '.type' 2>/dev/null || true)
+        if [ "$TYPE" = "result" ]; then
+          echo "Finished: $(echo "$line" | jq -r '.result')"
+        fi
+      done
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+</CodeGroup>
+
+## Additional flags
+
+| Flag | Description |
+|---|---|
+| `--system-prompt <text>` | Override the system prompt |
+| `--append-system-prompt <text>` | Append to the default system prompt |
+| `--permission-mode <mode>` | Set permission mode: `default`, `acceptEdits`, `plan`, `bypassPermissions`, or `dontAsk` |
+| `--no-session-persistence` | Disable saving the session to disk |
+| `--session-id <uuid>` | Use a specific session UUID |
+| `-c, --continue` | Continue the most recent session in the current directory |
+| `-r, --resume <id>` | Resume a specific session by ID |
+| `--settings <file-or-json>` | Load additional settings from a file or inline JSON |
+| `--add-dir <directories...>` | Grant tool access to additional directories |
+| `--bare` | Minimal mode — skip hooks, LSP, plugins, keychain reads, and CLAUDE.md discovery |

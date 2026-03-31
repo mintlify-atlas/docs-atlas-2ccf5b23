@@ -1,0 +1,302 @@
+---
+title: "Agent tools"
+description: "Tools for multi-agent workflows — spawning sub-agents, executing skills, managing tasks, and coordinating agent swarms."
+---
+
+Claude Code supports multi-agent architectures where the primary Claude session can spawn sub-agents, delegate tasks, exchange messages, and coordinate work across a team of agents running in parallel. The tools on this page are the building blocks for those workflows.
+
+<Info>
+Multi-agent features require agent swarms to be enabled. See [Agent swarms](/guides/agent-swarms) for configuration and usage patterns.
+</Info>
+
+## AgentTool
+
+Spawns a sub-agent — a new, isolated Claude session — to handle a complex multi-step task. The sub-agent has its own tool access, context window, and permission scope.
+
+### When to use
+
+Use `AgentTool` when a task requires multiple independent units of work that can run in parallel, or when a task is complex enough to benefit from isolated context. Common examples:
+
+- Running tests and fixing failures across many files simultaneously.
+- Performing a large-scale refactor on different parts of the codebase in parallel.
+- Delegating research tasks to a sub-agent while the parent continues other work.
+
+### Parameters
+
+<ParamField path="prompt" type="string" required>
+  The task description for the sub-agent to perform. Be specific — the sub-agent starts with a fresh context window and only knows what you tell it here.
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  A short (3–5 word) label for the task, shown in the UI while the agent runs.
+</ParamField>
+
+<ParamField path="subagent_type" type="string">
+  The type of specialized agent to use. If omitted, a general-purpose agent is used. Custom agent types are defined in the `agents/` directory.
+</ParamField>
+
+<ParamField path="model" type="string">
+  Model override for this agent: `"sonnet"`, `"opus"`, or `"haiku"`. Overrides the agent definition's model setting. If omitted, inherits from the parent session.
+</ParamField>
+
+<ParamField path="run_in_background" type="boolean">
+  When `true`, the agent runs in the background and the parent session continues immediately. You are notified when the agent completes. Defaults to `false`.
+</ParamField>
+
+<ParamField path="name" type="string">
+  A name for this agent, making it addressable by `SendMessageTool` via `{ "to": "<name>" }` while it is running.
+</ParamField>
+
+<ParamField path="isolation" type="string">
+  Isolation mode:
+  - `"worktree"` — creates a temporary git worktree so the agent works on an isolated copy of the repository.
+</ParamField>
+
+<ParamField path="cwd" type="string">
+  Absolute path to run the agent in. Overrides the working directory for all filesystem and shell operations in this agent. Cannot be used together with `isolation: "worktree"`.
+</ParamField>
+
+### How sub-agents work
+
+When `AgentTool` runs, it:
+
+1. Creates a new Claude session with a fresh system prompt and context.
+2. Gives the sub-agent access to the same tools as the parent, subject to its own permission scope.
+3. Runs the sub-agent's tool loop until it produces a final answer.
+4. Returns the sub-agent's result to the parent session as a tool result.
+
+Sub-agents do not share context with the parent — they only know what is in their `prompt`. If the sub-agent needs file content, it should read those files itself.
+
+### Example: parallel task delegation
+
+```
+User: Run all the tests and fix any failures.
+
+Claude: I'll spawn a sub-agent to handle this while I continue reviewing the code.
+[AgentTool: {
+  "description": "Run and fix tests",
+  "prompt": "Run `bun test` in /project, identify all failing tests, and fix them. Use FileReadTool, FileEditTool, and BashTool as needed.",
+  "run_in_background": true
+}]
+```
+
+---
+
+## SkillTool
+
+Executes a named skill — a reusable workflow defined as a slash command. Skills are markdown prompts stored in the `skills/` directory (or loaded from an MCP server) that encode standard procedures like committing code, reviewing a PR, or generating documentation.
+
+### Parameters
+
+<ParamField path="skill" type="string" required>
+  The skill name, e.g. `"commit"`, `"review-pr"`, or `"pdf"`. Leading slashes are stripped automatically for compatibility.
+</ParamField>
+
+<ParamField path="args" type="string">
+  Optional arguments passed to the skill. How arguments are used depends on the skill definition.
+</ParamField>
+
+### How skills are executed
+
+Skills can run in two modes:
+
+- **Inline** (default) — The skill's prompt is injected directly into the current conversation context. The current agent processes the skill's instructions without spawning a new session.
+- **Forked** — If the skill's frontmatter specifies `context: fork`, the skill runs in an isolated sub-agent with its own token budget. The result is returned as a tool result.
+
+### Example
+
+```
+[SkillTool: { "skill": "commit" }]
+→ Launching skill: commit
+```
+
+<Tip>
+You can list available skills with the `/skills` slash command. See [Skills](/guides/skills) for how to create custom skills.
+</Tip>
+
+---
+
+## Task tools
+
+Task tools create and manage tasks in a shared task list. In multi-agent sessions, tasks are the primary mechanism for coordinating work — agents create tasks, pick them up, and mark them complete.
+
+### Task lifecycle
+
+```
+pending → in_progress → completed
+                      ↘ cancelled
+```
+
+<AccordionGroup>
+  <Accordion title="TaskCreateTool">
+    Creates a new task in the shared task list and returns the task ID.
+
+    **Parameters:**
+
+    - `subject` (string, required) — A brief title for the task.
+    - `description` (string, required) — What needs to be done.
+    - `activeForm` (string) — Present-continuous label shown in the spinner when the task is in progress, e.g. `"Running tests"`.
+    - `metadata` (object) — Arbitrary key-value metadata to attach to the task.
+
+    **Example:**
+    ```json
+    {
+      "subject": "Fix failing auth tests",
+      "description": "Run `bun test src/auth` and fix all failures. There are 3 known failures in session.test.ts.",
+      "activeForm": "Fixing auth tests"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="TaskUpdateTool">
+    Updates an existing task's status, owner, metadata, or blocking relationships.
+
+    **Parameters:**
+
+    - `taskId` (string, required) — The ID of the task to update.
+    - `status` (string) — New status: `"pending"`, `"in_progress"`, `"completed"`, or `"deleted"`.
+    - `subject` (string) — New subject.
+    - `description` (string) — New description.
+    - `owner` (string) — The agent name that owns this task.
+    - `addBlocks` (string[]) — Task IDs that this task blocks.
+    - `addBlockedBy` (string[]) — Task IDs that block this task.
+    - `metadata` (object) — Metadata keys to merge in. Set a key to `null` to delete it.
+
+    **Example:**
+    ```json
+    { "taskId": "3", "status": "completed" }
+    ```
+  </Accordion>
+
+  <Accordion title="TaskGetTool">
+    Retrieves a single task by ID, including its current status, owner, and metadata.
+  </Accordion>
+
+  <Accordion title="TaskListTool">
+    Lists all tasks in the current task list. Returns subject, status, owner, and blocking relationships for each task.
+  </Accordion>
+
+  <Accordion title="TaskStopTool">
+    Stops a running agent task. The task moves to a stopped state and can be resumed later with `SendMessageTool`.
+  </Accordion>
+
+  <Accordion title="TaskOutputTool">
+    Reads the output file produced by a completed background agent task. Background agents write their results to disk — this tool retrieves that content.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## SendMessageTool
+
+Sends a message to another agent in the current swarm. Messages are delivered to the recipient's mailbox and processed at the recipient's next tool round.
+
+### Parameters
+
+<ParamField path="to" type="string" required>
+  The recipient. Options:
+  - A teammate name, e.g. `"alice"` or `"worker-1"`.
+  - `"*"` to broadcast to all teammates in the current team.
+</ParamField>
+
+<ParamField path="message" type="string | object" required>
+  The message content. Either a plain text string or a structured message object for protocol messages (shutdown request/response, plan approval).
+</ParamField>
+
+<ParamField path="summary" type="string">
+  A 5–10 word preview shown in the UI. Required when `message` is a plain text string.
+</ParamField>
+
+### Example
+
+```json
+{
+  "to": "worker-1",
+  "summary": "Auth tests are now fixed",
+  "message": "I've fixed the 3 failing tests in session.test.ts. You can proceed with the integration tests now."
+}
+```
+
+---
+
+## Team tools
+
+Team tools create and manage teams of parallel agents.
+
+<AccordionGroup>
+  <Accordion title="TeamCreateTool">
+    Creates a named team and registers the current session as the team lead.
+
+    **Parameters:**
+    - `team_name` (string, required) — Name for the team.
+    - `description` (string) — Team description or purpose.
+    - `agent_type` (string) — Role of the team lead, e.g. `"researcher"` or `"orchestrator"`.
+
+    Creating a team initializes a fresh task list and sets the task namespace for all agents in the team.
+
+    **A leader can only manage one team at a time.** Call `TeamDeleteTool` before creating a new team.
+  </Accordion>
+
+  <Accordion title="TeamDeleteTool">
+    Deletes the current team and cleans up its resources (team file, task list directory).
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Plan mode tools
+
+<AccordionGroup>
+  <Accordion title="EnterPlanModeTool">
+    Switches the session to plan mode. In plan mode, Claude proposes changes and tool calls but does not execute them until you approve. Useful for reviewing a complex plan before committing to it.
+  </Accordion>
+
+  <Accordion title="ExitPlanModeTool">
+    Exits plan mode and resumes normal execution. Claude will begin executing the approved plan.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Worktree tools
+
+<AccordionGroup>
+  <Accordion title="EnterWorktreeTool">
+    Creates a temporary git worktree and switches the session's working directory to it. The worktree is an isolated copy of the repository, so changes made by the agent do not affect the main working tree until they are merged.
+
+    This is the same isolation mechanism used by `AgentTool` when `isolation: "worktree"` is specified.
+  </Accordion>
+
+  <Accordion title="ExitWorktreeTool">
+    Exits the current git worktree and returns the session to the original working directory. The worktree is removed from disk.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Multi-agent workflow example
+
+The following shows how the agent tools work together in a typical parallel workflow:
+
+<Steps>
+  <Step title="Create a team">
+    ```json
+    [TeamCreateTool: { "team_name": "test-fix-sprint", "description": "Fix all failing tests" }]
+    ```
+  </Step>
+  <Step title="Create tasks">
+    ```json
+    [TaskCreateTool: { "subject": "Fix auth tests", "description": "Fix failures in src/auth/*.test.ts" }]
+    [TaskCreateTool: { "subject": "Fix API tests", "description": "Fix failures in src/api/*.test.ts" }]
+    ```
+  </Step>
+  <Step title="Spawn agents">
+    ```json
+    [AgentTool: { "name": "alice", "description": "Fix auth tests", "prompt": "Pick up task #1 and fix the auth test failures.", "run_in_background": true }]
+    [AgentTool: { "name": "bob", "description": "Fix API tests", "prompt": "Pick up task #2 and fix the API test failures.", "run_in_background": true }]
+    ```
+  </Step>
+  <Step title="Agents report back">
+    Agents use `TaskUpdateTool` to mark their tasks complete and `SendMessageTool` to notify the team lead when they finish.
+  </Step>
+</Steps>

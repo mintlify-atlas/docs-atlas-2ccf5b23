@@ -1,0 +1,165 @@
+---
+title: "Architecture"
+description: "A high-level overview of how Claude Code is structured: from the CLI frontend through the query engine, tool system, and permission layer."
+---
+
+Claude Code is a terminal-first coding agent built on a layered architecture. Each layer has a single responsibility, and data flows from user input down through the engine and back up through the UI.
+
+## Architectural layers
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        CLI Frontend                          │
+│         Commander.js (argument parsing) + React/Ink (UI)    │
+│                        main.tsx                              │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────────────┐
+│                       QueryEngine                            │
+│     Streaming API calls · Tool-call loop · Retry logic       │
+│     Thinking mode · Token counting · Context compression     │
+│                      QueryEngine.ts                          │
+└────────────┬──────────────────────────────┬──────────────────┘
+             │                              │
+┌────────────▼────────────┐   ┌─────────────▼────────────────┐
+│       Tool System       │   │       Permission Layer        │
+│  Input schema · Execute │   │  Check every tool invocation  │
+│  Progress · Results     │   │  Prompt · Auto-approve · Deny │
+│      src/tools/         │   │  src/hooks/toolPermission/    │
+└────────────┬────────────┘   └──────────────────────────────┘
+             │
+┌────────────▼────────────────────────────────────────────────┐
+│                       Service Layer                          │
+│   Anthropic API · MCP · LSP · OAuth · Analytics · Compact   │
+│                      src/services/                           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### main.tsx — CLI entrypoint
+
+`main.tsx` is the top of the call stack. It uses **Commander.js** to parse flags and subcommands, then mounts the **React/Ink** renderer for the interactive terminal UI. Two startup optimizations fire as side effects before any heavy module is evaluated:
+
+```typescript
+// Prefetched in parallel before Commander parses arguments
+startMdmRawRead()       // MDM policy settings
+startKeychainPrefetch() // macOS Keychain credential reads
+```
+
+### QueryEngine — LLM engine
+
+`QueryEngine.ts` (~46 000 lines) owns the conversation loop. It sends messages to the Anthropic API, streams the response, detects tool-use blocks, routes each tool call through the permission layer and tool system, and feeds results back into the next API call. It also handles:
+
+- Streaming token accounting and cost tracking
+- Extended thinking mode configuration
+- Automatic retry on transient API errors
+- Context compression triggers (`/compact`)
+- Session transcript persistence
+
+### Tool system — src/tools/
+
+Each tool is a self-contained module with an input schema, a permission declaration, and an execution function. The `QueryEngine` calls a tool by name; the tool system resolves the implementation, validates the input with Zod, and runs it. See [Tool system](/concepts/tool-system) for details.
+
+### Permission layer — src/hooks/toolPermission/
+
+Before any tool executes, the permission layer is consulted. Depending on the configured mode, it either prompts the user interactively, auto-approves, or rejects. See [Permission model](/concepts/permission-model) for details.
+
+### Service layer — src/services/
+
+Stateless integrations that tools and the engine call out to:
+
+| Service | Responsibility |
+|---|---|
+| `api/` | Anthropic API client, streaming, file uploads |
+| `mcp/` | Model Context Protocol server connections |
+| `lsp/` | Language Server Protocol manager |
+| `oauth/` | OAuth 2.0 authentication flow |
+| `analytics/` | GrowthBook feature flags and event logging |
+| `compact/` | Conversation context compression |
+| `extractMemories/` | Automatic memory extraction at turn end |
+| `teamMemorySync/` | Team memory synchronization |
+
+---
+
+## Tech stack
+
+| Category | Technology |
+|---|---|
+| Runtime | [Bun](https://bun.sh) |
+| Language | TypeScript (strict mode) |
+| Terminal UI | [React](https://react.dev) + [Ink](https://github.com/vadimdemedes/ink) |
+| CLI parsing | [Commander.js](https://github.com/tj/commander.js) (extra-typings) |
+| Schema validation | [Zod v4](https://zod.dev) |
+| Code search | [ripgrep](https://github.com/BurntSushi/ripgrep) (via GrepTool) |
+| Protocols | [MCP SDK](https://modelcontextprotocol.io), LSP |
+| LLM API | [Anthropic SDK](https://docs.anthropic.com) |
+| Telemetry | OpenTelemetry + gRPC (lazily loaded) |
+| Feature flags | GrowthBook |
+| Auth | OAuth 2.0, JWT, macOS Keychain |
+
+---
+
+## Performance patterns
+
+### Parallel prefetch at startup
+
+`main.tsx` fires MDM settings reads and Keychain prefetches as parallel side effects before Commander.js begins parsing. This means credentials and policy settings are ready by the time the first API call is made, with no sequential wait.
+
+### Lazy loading of heavy modules
+
+OpenTelemetry (~400 KB) and gRPC (~700 KB) are deferred via dynamic `import()` until the code path that needs them actually runs. They are never loaded in sessions that don't use telemetry.
+
+```typescript
+// Only evaluated when tracing is actually needed
+const { trace } = await import('@opentelemetry/api')
+```
+
+### Agent swarms
+
+Sub-agents are spawned via `AgentTool`, with `src/coordinator/` handling multi-agent orchestration. `TeamCreateTool` enables team-level parallel work across independent workstreams. See [Agent swarms](/guides/agent-swarms).
+
+---
+
+## Feature flags
+
+Claude Code uses Bun's `bun:bundle` API for compile-time dead code elimination. Inactive features are stripped entirely from the production bundle — they add zero runtime overhead.
+
+```typescript
+import { feature } from 'bun:bundle'
+
+const voiceCommand = feature('VOICE_MODE')
+  ? require('./commands/voice/index.js').default
+  : null
+```
+
+| Flag | Feature |
+|---|---|
+| `PROACTIVE` | Proactive (background) agent mode |
+| `KAIROS` | Assistant/Kairos mode with daily log memory |
+| `BRIDGE_MODE` | IDE extension bridge (VS Code, JetBrains) |
+| `DAEMON` | Background daemon process |
+| `VOICE_MODE` | Voice input support |
+| `AGENT_TRIGGERS` | Scheduled and remote agent triggers |
+| `MONITOR_TOOL` | MonitorTool for agent observation |
+
+<Note>
+Feature flags are resolved at build time. You cannot enable a flagged feature at runtime unless it was included in the build you are running.
+</Note>
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Tool system" icon="wrench" href="/concepts/tool-system">
+    How tools are defined, registered, and invoked inside the query loop.
+  </Card>
+  <Card title="Permission model" icon="shield" href="/concepts/permission-model">
+    How every tool invocation is checked before execution.
+  </Card>
+  <Card title="Memory and context" icon="brain" href="/concepts/memory">
+    Persistent memory, CLAUDE.md files, and context management.
+  </Card>
+  <Card title="MCP servers" icon="plug" href="/guides/mcp-servers">
+    Connecting external tools via the Model Context Protocol.
+  </Card>
+</CardGroup>

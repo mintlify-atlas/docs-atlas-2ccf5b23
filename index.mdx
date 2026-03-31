@@ -1,97 +1,75 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Claude Code"
+description: "An agentic coding assistant that lives in your terminal — understands your codebase, edits files, runs commands, and manages git workflows through natural language."
 ---
 
-## Setting up
+Claude Code is Anthropic's official CLI tool that brings the power of Claude directly into your terminal. Tell it what you want to accomplish and it executes the steps: reading your codebase, editing files, running shell commands, creating commits, reviewing PRs, and more — all without leaving your workflow.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Install Claude Code and run your first command in under 5 minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed installation instructions for all platforms.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Core Concepts" icon="book" href="/concepts/architecture">
+    Understand how Claude Code works: tools, permissions, and memory.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Command Reference" icon="terminal" href="/reference/commands/overview">
+    Every slash command with flags, examples, and behavior details.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What Claude Code can do
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Edit files" icon="file-pen" href="/reference/tools/file-tools">
+    Read, write, and precisely edit any file in your codebase using string replacement.
+  </Card>
+  <Card title="Run shell commands" icon="square-terminal" href="/reference/tools/overview">
+    Execute bash commands, run tests, start servers — anything you'd do in a terminal.
+  </Card>
+  <Card title="Git workflows" icon="code-branch" href="/reference/commands/git-workflows">
+    Commit changes, review PRs, create branches, and view diffs through natural language.
+  </Card>
+  <Card title="Search your codebase" icon="magnifying-glass" href="/reference/tools/search-tools">
+    Use ripgrep-powered search and glob patterns to navigate large codebases instantly.
+  </Card>
+  <Card title="MCP integrations" icon="plug" href="/guides/mcp-servers">
+    Connect external tools and data sources via Model Context Protocol servers.
+  </Card>
+  <Card title="Multi-agent swarms" icon="network-wired" href="/guides/agent-swarms">
+    Spawn parallel sub-agents to tackle complex tasks concurrently.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Get started
 
-## Need inspiration?
+<Steps>
+  <Step title="Install Claude Code">
+    Install via npm using Bun or Node.js:
+    ```bash
+    npm install -g @anthropic-ai/claude-code
+    ```
+  </Step>
+  <Step title="Authenticate">
+    Run Claude Code for the first time and follow the OAuth login prompt:
+    ```bash
+    claude
+    ```
+  </Step>
+  <Step title="Start coding">
+    Open any project directory and describe what you want to do:
+    ```bash
+    cd my-project
+    claude "Fix the failing tests in the auth module"
+    ```
+  </Step>
+  <Step title="Explore commands">
+    Inside the REPL, type `/help` to see all available slash commands, or `/doctor` to check your environment setup.
+  </Step>
+</Steps>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+Claude Code requires an active Anthropic account. Run `claude` to start the REPL, then type `/login` to authenticate, or `/doctor` to diagnose any setup issues.
+</Note>

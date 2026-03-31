@@ -1,0 +1,217 @@
+---
+title: "MCP servers"
+description: "Connect Claude Code to external tools, APIs, and data sources using the Model Context Protocol (MCP)."
+---
+
+Model Context Protocol (MCP) is an open standard that lets Claude connect to external systems — databases, APIs, developer tools, and more — through a defined transport and tool-call interface. Claude Code acts as an MCP client, spawning or connecting to MCP servers and making their tools available during a session.
+
+## How Claude Code uses MCP
+
+When a session starts, Claude Code connects to all configured MCP servers and discovers their available tools and resources. These appear alongside built-in tools in Claude's context. When Claude invokes an MCP tool, the call is routed to the appropriate server over its configured transport.
+
+MCP servers are listed and managed with the `/mcp` slash command.
+
+---
+
+## MCP transports
+
+Claude Code supports the following transport types:
+
+| Type | Key | Description |
+|------|-----|-------------|
+| Stdio | `stdio` | Launches a subprocess and communicates over stdin/stdout. Default for local servers. |
+| HTTP | `http` | Connects to an HTTP endpoint implementing the MCP HTTP transport. |
+| SSE | `sse` | Server-Sent Events over HTTP. Used for streaming-capable remote servers. |
+| WebSocket | `ws` | WebSocket transport for bidirectional streaming. |
+| SDK | `sdk` | Internal SDK-managed transport placeholder (used by IDE extensions). |
+
+---
+
+## MCP config file format
+
+MCP servers are defined in JSON configuration files using a `mcpServers` object:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@my-org/my-mcp-server"],
+      "env": {
+        "API_KEY": "${MY_API_KEY}"
+      }
+    },
+    "remote-server": {
+      "type": "http",
+      "url": "https://mcp.example.com/v1",
+      "headers": {
+        "Authorization": "Bearer ${AUTH_TOKEN}"
+      }
+    },
+    "sse-server": {
+      "type": "sse",
+      "url": "https://api.example.com/mcp/sse"
+    }
+  }
+}
+```
+
+Environment variable references (`${VAR_NAME}`) are expanded from the current process environment at connection time.
+
+<Note>Server names may only contain letters, numbers, hyphens, and underscores.</Note>
+
+---
+
+## Configuration scopes
+
+MCP servers can be configured at three scopes:
+
+| Scope | File location | Committed to git |
+|-------|---------------|-----------------|
+| `project` | `<project-root>/.mcp.json` | Yes — shared with team |
+| `local` | `<project-root>/.claude/settings.local.json` (`mcpServers` key) | No |
+| `user` | `~/.claude/settings.json` (`mcpServers` key) | No |
+| `enterprise` | Managed path `managed-mcp.json` | No — MDM-deployed |
+
+When the same server name exists in multiple scopes, the order of precedence is: `enterprise` > `local` > `project` > `user`.
+
+If an `enterprise` managed MCP config file exists, it has **exclusive control** — no other scopes are loaded.
+
+---
+
+## Adding an MCP server
+
+### Using the CLI
+
+<Steps>
+  <Step title="Add a stdio server">
+    ```bash
+    claude mcp add my-server -- npx -y @my-org/my-mcp-server
+    ```
+
+    This adds the server to your `local` config by default. Use `--scope project` to write to `.mcp.json` instead:
+
+    ```bash
+    claude mcp add --scope project my-server -- npx -y @my-org/my-mcp-server
+    ```
+  </Step>
+
+  <Step title="Add an HTTP server">
+    ```bash
+    claude mcp add --transport http sentry https://mcp.sentry.dev/mcp
+    ```
+
+    Add custom headers:
+
+    ```bash
+    claude mcp add --transport http corridor https://app.corridor.dev/api/mcp \
+      --header "Authorization: Bearer $TOKEN"
+    ```
+  </Step>
+
+  <Step title="Add an SSE server with OAuth">
+    ```bash
+    claude mcp add --transport sse my-api https://api.example.com/sse \
+      --client-id my-client-id --client-secret
+    ```
+
+    The `--client-secret` flag prompts for the secret interactively, or you can set it via `MCP_CLIENT_SECRET` in your environment.
+  </Step>
+
+  <Step title="Verify the server appears">
+    Open a new Claude Code session and run:
+
+    ```
+    /mcp
+    ```
+
+    The server should appear in the list. If its status is `failed`, check the server command and environment variables.
+  </Step>
+</Steps>
+
+### Using the `/mcp` slash command
+
+Run `/mcp` inside a session to open the interactive MCP management UI. From there you can:
+
+- View all connected, pending, failed, and disabled servers
+- Enable or disable individual servers
+- Inspect which tools each server provides
+
+### Using `--mcp-config`
+
+Pass a config file directly when launching Claude Code:
+
+```bash
+claude --mcp-config ./my-mcp-config.json
+```
+
+Servers from this file are loaded as `dynamic` scope and merged with other configured servers.
+
+<Warning>Servers loaded via `--mcp-config` are subject to enterprise policy filtering. Servers blocked by `deniedMcpServers` or not in `allowedMcpServers` will be dropped with a warning.</Warning>
+
+---
+
+## Removing an MCP server
+
+```bash
+# Remove from local config
+claude mcp remove my-server
+
+# Remove from project .mcp.json
+claude mcp remove --scope project my-server
+
+# Remove from user config
+claude mcp remove --scope user my-server
+```
+
+---
+
+## MCP tools vs. resources
+
+MCP servers expose two types of content:
+
+- **Tools** — callable functions that Claude can invoke (e.g., `search_database`, `create_issue`). Tools appear in the active tool list and are invoked via the `MCPTool` internal tool.
+- **Resources** — read-only data that Claude can reference (e.g., file contents, API responses). Resources are listed separately and can be attached to context.
+
+Use `/mcp` to see which tools and resources each connected server provides.
+
+---
+
+## Enterprise policy
+
+Enterprise administrators can control which MCP servers users can run:
+
+```json
+{
+  "allowedMcpServers": [
+    { "serverName": "approved-server" },
+    { "serverCommand": ["npx", "-y", "@corp/internal-mcp"] },
+    { "serverUrl": "https://*.corp.example.com/*" }
+  ],
+  "deniedMcpServers": [
+    { "serverName": "blocked-server" }
+  ]
+}
+```
+
+The denylist takes precedence over the allowlist. See [Configuration](/guides/configuration#mdm-managed-settings) for the full policy reference.
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Configure global settings and enterprise policies.
+  </Card>
+  <Card title="Plugins" icon="puzzle-piece" href="/guides/plugins">
+    Install plugins that provide MCP servers automatically.
+  </Card>
+  <Card title="Tool system" icon="wrench" href="/concepts/tool-system">
+    Understand how Claude invokes tools including MCP tools.
+  </Card>
+  <Card title="Commands reference" icon="terminal" href="/reference/commands/overview">
+    Full reference for slash commands.
+  </Card>
+</CardGroup>

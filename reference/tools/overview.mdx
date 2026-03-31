@@ -1,0 +1,117 @@
+---
+title: "Tools overview"
+description: "Tools are the capabilities Claude can invoke during a session — reading files, running commands, searching the codebase, fetching URLs, and more."
+---
+
+Tools are discrete, self-contained capabilities that Claude invokes during a session to accomplish tasks. Each tool has a defined input schema, a permission level, and an execution function. Claude selects the appropriate tool based on what the task requires, then waits for the result before continuing.
+
+## How the tool loop works
+
+<Steps>
+  <Step title="Claude selects a tool">
+    After analyzing the conversation, Claude emits a `tool_use` block specifying the tool name and its input arguments.
+  </Step>
+  <Step title="Permission check">
+    The permission system evaluates whether the tool call is allowed under the current permission mode (`default`, `plan`, `bypassPermissions`, etc.). Depending on the outcome, the tool call is automatically approved, denied, or presented to you for a yes/no decision.
+  </Step>
+  <Step title="Tool executes">
+    The tool runs — reading a file, executing a shell command, fetching a URL, spawning a sub-agent, and so on. Progress is streamed to the terminal UI in real time.
+  </Step>
+  <Step title="Result returned">
+    The tool returns a result, which is injected into the conversation context as a `tool_result` block. Claude then continues from where it left off, using the new information.
+  </Step>
+</Steps>
+
+## Permission levels
+
+Each tool has a permission level that determines when you need to approve its use.
+
+| Level | Description | Examples |
+|---|---|---|
+| **Read-only** | Does not modify any files or system state. Automatically approved in most modes. | `FileReadTool`, `GlobTool`, `GrepTool`, `WebFetchTool` |
+| **Mutating** | Creates or modifies files or state. Requires approval unless the path is in an allowlist or `bypassPermissions` mode is active. | `FileWriteTool`, `FileEditTool`, `NotebookEditTool` |
+| **Destructive / side-effect** | Executes shell commands, spawns agents, or has network side-effects. Requires explicit approval unless pre-approved. | `BashTool`, `AgentTool`, `TeamCreateTool`, `WebSearchTool` |
+
+<Info>
+The permission model is documented in detail in [Permission model](/concepts/permission-model). You can pre-approve specific paths or commands in your local settings to avoid repeated prompts.
+</Info>
+
+## Controlling available tools
+
+You can restrict which tools Claude can use in a session using CLI flags.
+
+**Allow only specific tools:**
+
+```bash
+claude --allowedTools FileReadTool,GlobTool,GrepTool
+```
+
+**Block specific tools:**
+
+```bash
+claude --disallowedTools BashTool,WebFetchTool
+```
+
+Both flags accept a comma-separated list of tool names. `--allowedTools` takes precedence — only the listed tools will be available. `--disallowedTools` removes specific tools from the default set.
+
+<Tip>
+Use `--allowedTools` for read-only sessions where you want Claude to explore the codebase without making changes.
+</Tip>
+
+## Complete tool reference
+
+The table below lists every built-in tool. Tools marked with a feature flag may not be available in all configurations.
+
+| Tool | Category | Description | Permission level |
+|---|---|---|---|
+| `BashTool` | Shell | Execute shell commands in a persistent session | Destructive |
+| `FileReadTool` | File | Read files — text, images, PDFs, Jupyter notebooks | Read-only |
+| `FileWriteTool` | File | Create or overwrite a file with new content | Mutating |
+| `FileEditTool` | File | Partial file edit via exact string replacement | Mutating |
+| `GlobTool` | Search | Find files by glob pattern | Read-only |
+| `GrepTool` | Search | Search file contents with regex (ripgrep) | Read-only |
+| `WebFetchTool` | Web | Fetch and extract content from a URL | Read-only |
+| `WebSearchTool` | Web | Search the web for current information | Read-only |
+| `AgentTool` | Agent | Spawn a sub-agent to handle a complex task | Destructive |
+| `SkillTool` | Agent | Execute a named skill (reusable workflow) | Destructive |
+| `MCPTool` | Agent | Invoke a tool from a connected MCP server | Varies |
+| `LSPTool` | Agent | Language Server Protocol diagnostics and hover | Read-only |
+| `NotebookEditTool` | File | Edit cells in a Jupyter notebook | Mutating |
+| `TaskCreateTool` | Task | Create a task in the shared task list | Mutating |
+| `TaskUpdateTool` | Task | Update task status, owner, or metadata | Mutating |
+| `TaskGetTool` | Task | Retrieve a single task by ID | Read-only |
+| `TaskListTool` | Task | List all tasks in the current task list | Read-only |
+| `TaskStopTool` | Task | Stop a running task | Mutating |
+| `TaskOutputTool` | Task | Read the output file of a completed agent task | Read-only |
+| `SendMessageTool` | Agent | Send a message to another agent in a swarm | Mutating |
+| `TeamCreateTool` | Agent | Create a named team for multi-agent coordination | Mutating |
+| `TeamDeleteTool` | Agent | Delete a team and clean up its resources | Mutating |
+| `EnterPlanModeTool` | Session | Switch to plan mode (propose without executing) | Mutating |
+| `ExitPlanModeTool` | Session | Exit plan mode and resume normal execution | Mutating |
+| `EnterWorktreeTool` | Session | Isolate work in a temporary git worktree | Mutating |
+| `ExitWorktreeTool` | Session | Exit the current git worktree | Mutating |
+| `RemoteTriggerTool` | Session | Register a remote trigger for proactive mode | Mutating |
+| `ScheduleCronTool` | Session | Schedule a cron-style recurring trigger | Mutating |
+| `SleepTool` | Session | Pause execution in proactive/KAIROS mode | Read-only |
+| `SyntheticOutputTool` | Session | Emit structured output from the agent | Mutating |
+| `ToolSearchTool` | Agent | Discover tools by name or description | Read-only |
+| `AskUserQuestionTool` | Session | Ask you a clarifying question mid-task | Read-only |
+| `REPLTool` | Shell | Interactive REPL for code evaluation (internal) | Destructive |
+| `PowerShellTool` | Shell | Execute PowerShell commands on Windows | Destructive |
+
+## Tool categories
+
+<CardGroup cols={2}>
+  <Card title="File tools" icon="file" href="/reference/tools/file-tools">
+    Read, write, and edit files. Covers `FileReadTool`, `FileWriteTool`, `FileEditTool`, and `NotebookEditTool`.
+  </Card>
+  <Card title="Search tools" icon="magnifying-glass" href="/reference/tools/search-tools">
+    Find files and search content. Covers `GlobTool`, `GrepTool`, and search patterns with `BashTool`.
+  </Card>
+  <Card title="Agent tools" icon="robot" href="/reference/tools/agent-tools">
+    Multi-agent workflows, task management, and inter-agent messaging.
+  </Card>
+  <Card title="Web tools" icon="globe" href="/reference/tools/web-tools">
+    Fetch URLs and search the web. Covers `WebFetchTool` and `WebSearchTool`.
+  </Card>
+</CardGroup>

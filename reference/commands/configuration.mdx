@@ -1,0 +1,197 @@
+---
+title: "Configuration commands"
+description: "Reference for Claude Code commands that manage settings, authentication, models, themes, memory, and MCP servers."
+---
+
+These commands let you adjust Claude Code's behavior, switch models, manage authentication, and configure integrations — all from inside the REPL.
+
+<AccordionGroup>
+
+<Accordion title="/config — open the settings panel">
+
+Opens the configuration panel, where you can view and edit all settings.
+
+```bash
+> /config
+```
+
+Aliases: `/settings`
+
+The panel opens as a full-screen UI inside the REPL. It shows the current value of each setting and lets you change them interactively.
+
+<Tip>
+Changes made in `/config` are persisted to your global Claude Code configuration file.
+</Tip>
+
+</Accordion>
+
+<Accordion title="/model — switch the Claude model">
+
+Sets the Claude model used for the current and future sessions.
+
+```bash
+> /model
+# Opens an interactive model picker
+
+> /model claude-sonnet-4-5
+# Sets the model directly by name
+
+> /model default
+# Resets to the default model
+```
+
+With no arguments, `/model` opens a picker UI where you can browse available models and select one. With a model name as an argument, it sets the model immediately and prints a confirmation.
+
+To check which model is currently active:
+
+```bash
+> /model status
+# Current model: claude-sonnet-4-5
+```
+
+**Extended context models**
+
+Some models support a 1M token context window. These are available only on accounts that have been granted extended context access. If you try to select one without access, the command will print an error with a link to learn more.
+
+**Fast mode**
+
+On supported models, fast mode can reduce latency. When you switch to a model that does not support fast mode and fast mode was previously enabled, it is automatically disabled — and the confirmation message will note this.
+
+</Accordion>
+
+<Accordion title="/theme — change the terminal color theme">
+
+Opens an interactive theme picker and applies the selected theme immediately.
+
+```bash
+> /theme
+# Opens the theme picker
+```
+
+Select a theme using the arrow keys and press Enter to apply. The theme change takes effect immediately and is displayed as a confirmation message:
+
+```
+Theme set to dark
+```
+
+The selected theme is persisted to your global configuration.
+
+</Accordion>
+
+<Accordion title="/vim — toggle vim keybindings">
+
+Toggles between Vim mode and normal (readline) editing mode for the REPL input.
+
+```bash
+> /vim
+# Editor mode set to vim. Use Escape to toggle between INSERT and NORMAL modes.
+
+> /vim
+# Editor mode set to normal. Using standard (readline) keyboard bindings.
+```
+
+The mode is toggled each time you run the command. In Vim mode, press `Escape` to enter NORMAL mode and `i` to return to INSERT mode. The setting is persisted to your global configuration.
+
+</Accordion>
+
+<Accordion title="/doctor — diagnose your installation">
+
+Runs a series of checks on your Claude Code environment and reports any problems.
+
+```bash
+> /doctor
+```
+
+The doctor screen checks:
+
+- Authentication status (API key or OAuth token)
+- Network connectivity to Anthropic APIs
+- MCP server connections and configuration
+- Tool availability (e.g., `git`, `gh`, `jq`, `ripgrep`)
+- Configuration file validity
+
+Each check is shown with a pass/fail indicator. If a check fails, the output includes a description of the problem and a suggested fix.
+
+<Tip>
+Run `/doctor` when Claude Code behaves unexpectedly or after upgrading to a new version.
+</Tip>
+
+</Accordion>
+
+<Accordion title="/login and /logout — authentication">
+
+`/login` starts the OAuth flow to sign in to your Anthropic account (or switch accounts).
+
+```bash
+> /login
+# Opens the browser-based OAuth flow
+```
+
+If you are already authenticated via an API key, `/login` lets you switch to a different account. After a successful login, Claude Code refreshes your policy limits, feature flags, and MCP server connections automatically.
+
+`/logout` signs you out of your current Anthropic account.
+
+```bash
+> /logout
+```
+
+<Note>
+`/login` and `/logout` are not available in all environments. They can be disabled by your organization's managed device policy.
+</Note>
+
+If you authenticate using the `ANTHROPIC_API_KEY` environment variable rather than OAuth, `/login` still works and lets you switch to a different account, but the environment variable takes precedence on startup.
+
+</Accordion>
+
+<Accordion title="/memory — manage persistent memory files">
+
+Opens a file selector for editing Claude Code memory files. Memory files contain persistent instructions that are included in every conversation.
+
+```bash
+> /memory
+# Opens a dialog to select a memory file to edit
+```
+
+After you select a file, it opens in your default editor (controlled by `$EDITOR` or `$VISUAL`). If the file does not exist yet, it is created automatically.
+
+Memory files are Markdown files (typically `CLAUDE.md`) stored at the project level or globally in `~/.claude/`. Changes take effect in the next message you send.
+
+<Tip>
+Use memory files to store project-specific context, coding conventions, or recurring instructions that you would otherwise repeat at the start of every session. See the [memory concepts page](/concepts/memory) for more detail.
+</Tip>
+
+</Accordion>
+
+<Accordion title="/mcp — manage MCP server connections">
+
+Opens the MCP server management panel, or executes an inline subcommand.
+
+```bash
+> /mcp
+# Opens the MCP settings panel
+
+> /mcp enable my-server
+# Enables a specific MCP server by name
+
+> /mcp disable my-server
+# Disables a specific MCP server
+
+> /mcp enable all
+# Enables all configured MCP servers
+
+> /mcp disable all
+# Disables all configured MCP servers
+
+> /mcp reconnect my-server
+# Reconnects to a specific MCP server
+```
+
+The panel shows all configured MCP servers with their connection status. You can enable, disable, and inspect individual servers from there.
+
+<Note>
+MCP servers are configured in your Claude Code settings. For setup instructions, see the [MCP servers guide](/guides/mcp-servers).
+</Note>
+
+</Accordion>
+
+</AccordionGroup>
